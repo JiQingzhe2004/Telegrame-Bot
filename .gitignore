@@ -4,7 +4,11 @@ __pycache__/
 .pytest_cache/
 .venv/
 data/*.db
+data/*.db-shm
+data/*.db-wal
 .env
 *.egg-info/
 build/
 dist/
+web-admin/node_modules/
+web-admin/dist/

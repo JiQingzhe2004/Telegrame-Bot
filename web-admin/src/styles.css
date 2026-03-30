@@ -1,0 +1,54 @@
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 47 28% 96%;
+    --foreground: 26 20% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 26 20% 12%;
+    --primary: 20 82% 44%;
+    --primary-foreground: 36 100% 97%;
+    --secondary: 163 28% 90%;
+    --secondary-foreground: 163 28% 20%;
+    --muted: 35 26% 91%;
+    --muted-foreground: 28 14% 43%;
+    --accent: 195 76% 89%;
+    --accent-foreground: 197 70% 22%;
+    --destructive: 0 80% 52%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 32 26% 82%;
+    --input: 33 22% 88%;
+    --ring: 20 82% 44%;
+    --radius: 0.8rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: "Space Grotesk", sans-serif;
+    background-image:
+      radial-gradient(circle at 15% 15%, hsl(20 82% 90% / 0.5), transparent 35%),
+      radial-gradient(circle at 85% 0%, hsl(195 72% 88% / 0.55), transparent 40%),
+      linear-gradient(180deg, hsl(47 30% 97%), hsl(37 20% 94%));
+    min-height: 100vh;
+  }
+
+  code,
+  pre,
+  .font-mono {
+    font-family: "IBM Plex Mono", monospace;
+  }
+}
+
+@layer utilities {
+  .glass-panel {
+    @apply bg-white/70 backdrop-blur-xl border border-white/60 shadow-[0_20px_60px_rgba(90,60,20,0.15)];
+  }
+}

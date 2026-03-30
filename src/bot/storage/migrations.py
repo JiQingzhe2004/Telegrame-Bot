@@ -123,6 +123,26 @@ MIGRATIONS: list[Migration] = [
         CREATE INDEX IF NOT EXISTS idx_enforcement_chat_created ON enforcements(chat_id, created_at);
         """,
     )
+    ,
+    Migration(
+        version="0002_system_config",
+        sql="""
+        CREATE TABLE IF NOT EXISTS system_config(
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS setup_sessions(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          kind TEXT NOT NULL,
+          token_hash TEXT NOT NULL UNIQUE,
+          expires_at TEXT NOT NULL,
+          consumed_at TEXT,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_setup_sessions_kind ON setup_sessions(kind);
+        """,
+    ),
 ]
 
 
