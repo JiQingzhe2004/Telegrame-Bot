@@ -113,20 +113,59 @@ export type ChatMemberBrief = {
   strike_score: number;
 };
 
+export class ApiError extends Error {
+  status: number;
+  code: string;
+  detail?: unknown;
+
+  constructor(params: { message: string; status: number; code?: string; detail?: unknown }) {
+    super(params.message);
+    this.name = "ApiError";
+    this.status = params.status;
+    this.code = params.code ?? "api_error";
+    this.detail = params.detail;
+  }
+}
+
 export class ApiClient {
   constructor(private readonly baseUrl: string) {}
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
     const resp = await fetch(`${this.baseUrl}${path}`, init);
+    const contentType = resp.headers.get("content-type") ?? "";
+    const maybeJson = contentType.includes("application/json");
+    const payload = maybeJson ? await resp.json() : await resp.text();
+
     if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`HTTP ${resp.status}: ${text}`);
+      let message = `HTTP ${resp.status}`;
+      let code = "http_error";
+      let detail: unknown = payload;
+      if (maybeJson && payload && typeof payload === "object") {
+        const dataObj = payload as Record<string, unknown>;
+        if (typeof dataObj.detail === "string") {
+          message = dataObj.detail;
+          code = String(dataObj.detail);
+          detail = dataObj;
+        } else if (typeof dataObj.error === "string") {
+          message = dataObj.error;
+          code = "api_envelope_error";
+        }
+      } else if (typeof payload === "string" && payload.trim()) {
+        message = payload;
+      }
+      throw new ApiError({ message, status: resp.status, code, detail });
     }
-    const data = (await resp.json()) as ApiEnvelope<T>;
-    if (!data.ok) {
-      throw new Error(data.error ?? "Unknown API error");
+
+    const envelope = payload as ApiEnvelope<T>;
+    if (!envelope.ok) {
+      throw new ApiError({
+        message: envelope.error ?? "Unknown API error",
+        status: resp.status,
+        code: "api_envelope_error",
+        detail: envelope,
+      });
     }
-    return data.data;
+    return envelope.data;
   }
 
   private adminHeaders(adminToken: string): HeadersInit {
@@ -281,12 +320,9 @@ export class ApiClient {
   }
 
   adminListMembers(chatId: string, adminToken: string, limit = 200, q = "") {
-    return this.request<ChatMemberBrief[]>(
-      `/api/v1/chats/${chatId}/admin/members?limit=${limit}&q=${encodeURIComponent(q)}`,
-      {
-        headers: this.adminHeaders(adminToken),
-      },
-    );
+    return this.request<ChatMemberBrief[]>(`/api/v1/chats/${chatId}/admin/members?limit=${limit}&q=${encodeURIComponent(q)}`, {
+      headers: this.adminHeaders(adminToken),
+    });
   }
 
   adminGetMember(chatId: string, adminToken: string, userId: string) {
