@@ -22,6 +22,28 @@ export type RuntimeState = {
   run_mode: "polling" | "webhook";
 };
 
+export type RuntimeConfigPublic = {
+  bot_token: string;
+  openai_api_key: string;
+  openai_base_url: string;
+  run_mode: "polling" | "webhook";
+  webhook_public_url: string;
+  webhook_path: string;
+  admin_api_token: string;
+  admin_api_token_hash: string;
+  default_mode: string;
+  default_ai_enabled: boolean;
+  default_ai_threshold: number;
+  default_action_policy: string;
+  default_rate_limit_policy: string;
+  default_language: string;
+  default_level3_mute_seconds: number;
+  ai_low_risk_model: string;
+  ai_high_risk_model: string;
+  ai_timeout_seconds: number;
+  has_admin_api_token: boolean;
+};
+
 export type SetupState = {
   state: "setup" | "active";
   config_complete: boolean;
@@ -223,6 +245,35 @@ export class ApiClient {
   getStatus(adminToken: string) {
     return this.request<Record<string, unknown>>("/api/v1/status", {
       headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  getRuntimeConfig(adminToken: string) {
+    return this.request<RuntimeConfigPublic>("/api/v1/runtime/config", {
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  updateRuntimeConfig(
+    adminToken: string,
+    payload: Partial<
+      Pick<
+        RuntimeConfigPublic,
+        | "openai_api_key"
+        | "openai_base_url"
+        | "ai_low_risk_model"
+        | "ai_high_risk_model"
+        | "ai_timeout_seconds"
+        | "run_mode"
+        | "webhook_public_url"
+        | "webhook_path"
+      >
+    >,
+  ) {
+    return this.request<{ runtime_config: RuntimeConfigPublic; state: RuntimeState }>("/api/v1/runtime/config", {
+      method: "PUT",
+      headers: this.adminHeaders(adminToken),
+      body: JSON.stringify(payload),
     });
   }
 

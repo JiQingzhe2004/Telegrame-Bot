@@ -145,6 +145,32 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
     async def status() -> ApiEnvelope:
         return ApiEnvelope(ok=True, data=services.repo.status_summary())
 
+    @app.get("/api/v1/runtime/config", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def get_runtime_config() -> ApiEnvelope:
+        return ApiEnvelope(ok=True, data=services.runtime_manager.get_runtime_config_public())
+
+    @app.put("/api/v1/runtime/config", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def put_runtime_config(body: dict[str, Any]) -> ApiEnvelope:
+        allowed = {
+            "openai_api_key",
+            "openai_base_url",
+            "ai_low_risk_model",
+            "ai_high_risk_model",
+            "ai_timeout_seconds",
+            "run_mode",
+            "webhook_public_url",
+            "webhook_path",
+        }
+        payload = {k: v for k, v in body.items() if k in allowed}
+        if not payload:
+            raise HTTPException(status_code=400, detail="missing_runtime_config_fields")
+        try:
+            conf = services.runtime_manager.update_runtime_config(payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"code": "invalid_config", "errors": str(exc)}) from exc
+        await services.runtime_manager.reload(conf)
+        return ApiEnvelope(ok=True, data={"runtime_config": conf.redacted(), "state": services.runtime_manager.runtime_state()})
+
     @app.get("/api/v1/chats", dependencies=[Depends(require_active), Depends(auth_admin)])
     async def list_chats(limit: int = 200) -> ApiEnvelope:
         return ApiEnvelope(ok=True, data=services.repo.list_chats(limit))

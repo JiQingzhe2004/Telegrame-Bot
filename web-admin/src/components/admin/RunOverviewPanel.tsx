@@ -1,14 +1,17 @@
-import { Card, Col, Descriptions, Row, Space, Statistic, Tag } from "antd";
+import { Button, Card, Col, Descriptions, Row, Space, Statistic, Tag } from "antd";
 import { SafetyCertificateOutlined, TeamOutlined } from "@ant-design/icons";
 import type { AdminDataBundle } from "@/components/admin/types";
+import { translatePermission } from "@/lib/helpers";
 
 type Props = {
   runtimeState: "setup" | "active";
   chatId: string;
   data: AdminDataBundle;
+  onPermissionCheck: () => void;
+  checking: boolean;
 };
 
-export function RunOverviewPanel({ runtimeState, chatId, data }: Props) {
+export function RunOverviewPanel({ runtimeState, chatId, data, onPermissionCheck, checking }: Props) {
   return (
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
       <Row gutter={[16, 16]}>
@@ -28,12 +31,12 @@ export function RunOverviewPanel({ runtimeState, chatId, data }: Props) {
           </Card>
         </Col>
       </Row>
-      <Card title="群能力矩阵">
+      <Card title="群能力矩阵" extra={<Button loading={checking} onClick={onPermissionCheck}>权限一键自检</Button>}>
         <Descriptions bordered size="small" column={2}>
           <Descriptions.Item label="群名">{data.overview?.chat.title ?? "-"}</Descriptions.Item>
           <Descriptions.Item label="成员数">{data.overview?.member_count ?? "-"}</Descriptions.Item>
           {Object.entries(data.overview?.capabilities ?? {}).map(([name, ok]) => (
-            <Descriptions.Item key={name} label={name}>
+            <Descriptions.Item key={name} label={translatePermission(name)}>
               <Tag color={ok ? "success" : "default"}>{ok ? "可用" : "不可用"}</Tag>
             </Descriptions.Item>
           ))}

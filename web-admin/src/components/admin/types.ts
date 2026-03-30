@@ -33,5 +33,4 @@ export type AdminActions = {
   removeBlacklist: (value: string) => Promise<void>;
   rollback: (enforcementId: number) => Promise<void>;
   runAction: (runner: () => Promise<AdminActionResult>, successText?: string) => Promise<void>;
-  setTargetUser: (userId: string) => void;
 };

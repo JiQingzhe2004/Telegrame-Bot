@@ -1,5 +1,6 @@
 export const queryKeys = {
   runtime: ["runtime"] as const,
+  runtimeConfig: (adminToken: string) => ["runtimeConfig", adminToken] as const,
   status: (adminToken: string) => ["status", adminToken] as const,
   chats: (adminToken: string) => ["chats", adminToken] as const,
   settings: (chatId: string) => ["settings", chatId] as const,

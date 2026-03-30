@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Button, Card, Form, InputNumber, Select, Space, Switch } from "antd";
 import type { AdminActions, AdminDataBundle } from "@/components/admin/types";
 import type { ChatSettings } from "@/lib/api";
@@ -9,36 +10,51 @@ type Props = {
 
 export function PolicyConfigPanel({ data, actions }: Props) {
   const settings = data.settings;
+  const [form] = Form.useForm<Pick<ChatSettings, "mode" | "ai_enabled" | "ai_threshold" | "level3_mute_seconds">>();
 
-  const apply = async (payload: Partial<ChatSettings>) => {
-    await actions.updateSettings(payload);
+  useEffect(() => {
+    if (!settings) return;
+    form.setFieldsValue({
+      mode: settings.mode,
+      ai_enabled: settings.ai_enabled,
+      ai_threshold: settings.ai_threshold,
+      level3_mute_seconds: settings.level3_mute_seconds,
+    });
+  }, [settings, form]);
+
+  const onSubmit = async () => {
+    const values = await form.validateFields();
+    await actions.updateSettings(values);
   };
 
   return (
     <Card title="策略配置" loading={data.isLoading}>
-      <Form layout="vertical" initialValues={settings}>
+      <Form form={form} layout="vertical">
         <Space direction="vertical" style={{ width: "100%" }} size={12}>
-          <Form.Item label="模式">
+          <Form.Item label="模式" name="mode" rules={[{ required: true, message: "请选择模式" }]}>
             <Select
-              value={settings?.mode}
               options={[
                 { label: "strict", value: "strict" },
                 { label: "balanced", value: "balanced" },
                 { label: "relaxed", value: "relaxed" },
               ]}
-              onChange={(value) => void apply({ mode: value })}
             />
           </Form.Item>
-          <Form.Item label="AI 开关">
-            <Switch checked={Boolean(settings?.ai_enabled)} onChange={(value) => void apply({ ai_enabled: value })} />
+          <Form.Item label="AI 开关" name="ai_enabled" valuePropName="checked">
+            <Switch />
           </Form.Item>
-          <Form.Item label="AI 阈值">
-            <InputNumber min={0} max={1} step={0.01} style={{ width: 220 }} value={settings?.ai_threshold} onChange={(value) => void apply({ ai_threshold: Number(value ?? 0.75) })} />
+          <Form.Item label="AI 阈值" name="ai_threshold" rules={[{ required: true, message: "请填写阈值" }]}>
+            <InputNumber min={0} max={1} step={0.01} style={{ width: 220 }} />
           </Form.Item>
-          <Form.Item label="L3 禁言秒数">
-            <InputNumber style={{ width: 220 }} value={settings?.level3_mute_seconds} onChange={(value) => void apply({ level3_mute_seconds: Number(value ?? 604800) })} />
+          <Form.Item label="L3 禁言秒数" name="level3_mute_seconds" rules={[{ required: true, message: "请填写秒数" }]}>
+            <InputNumber min={1} style={{ width: 220 }} />
           </Form.Item>
-          <Button onClick={() => void actions.refreshAll()}>刷新配置</Button>
+          <Space>
+            <Button type="primary" onClick={() => void onSubmit()}>
+              保存策略配置
+            </Button>
+            <Button onClick={() => void actions.refreshAll()}>刷新配置</Button>
+          </Space>
         </Space>
       </Form>
     </Card>
