@@ -33,6 +33,9 @@ class RuntimeConfig:
     ai_timeout_seconds: int = 12
     join_verification_enabled: bool = True
     join_verification_timeout_seconds: int = 180
+    join_verification_question_type: str = "button"  # button | quiz
+    join_verification_max_attempts: int = 3
+    join_verification_whitelist_bypass: bool = True
     join_welcome_enabled: bool = True
     join_welcome_use_ai: bool = True
     join_welcome_template: str = "欢迎 {user} 加入 {chat}，请先阅读群规并友善交流。"
@@ -62,6 +65,9 @@ class RuntimeConfig:
             ai_timeout_seconds=int(merged["ai_timeout_seconds"]),
             join_verification_enabled=bool(merged["join_verification_enabled"]),
             join_verification_timeout_seconds=int(merged["join_verification_timeout_seconds"]),
+            join_verification_question_type=str(merged.get("join_verification_question_type", "button")).strip() or "button",
+            join_verification_max_attempts=int(merged.get("join_verification_max_attempts", 3)),
+            join_verification_whitelist_bypass=bool(merged.get("join_verification_whitelist_bypass", True)),
             join_welcome_enabled=bool(merged["join_welcome_enabled"]),
             join_welcome_use_ai=bool(merged["join_welcome_use_ai"]),
             join_welcome_template=str(merged["join_welcome_template"]).strip()

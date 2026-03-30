@@ -429,3 +429,68 @@ class BotRepository:
                 ),
             )
             return int(cur.lastrowid)
+
+    def get_verification_question(self, chat_id: int) -> dict | None:
+        """随机取一道验证题：优先群专属题，无则取全局题（chat_id IS NULL）"""
+        with self.db.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, question, options, answer_index FROM join_verification_questions
+                WHERE chat_id = ?
+                ORDER BY RANDOM() LIMIT 1
+                """,
+                (chat_id,),
+            ).fetchone()
+            if row:
+                return dict(row)
+            row = conn.execute(
+                """
+                SELECT id, question, options, answer_index FROM join_verification_questions
+                WHERE chat_id IS NULL
+                ORDER BY RANDOM() LIMIT 1
+                """,
+            ).fetchone()
+            return dict(row) if row else None
+
+    def save_verification_log(
+        self,
+        chat_id: int,
+        user_id: int,
+        username: str | None,
+        result: str,
+        attempts: int,
+        whitelist_bypass: bool,
+    ) -> int:
+        """写入入群验证审计日志"""
+        with self.db.connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO join_verification_log
+                  (chat_id, user_id, username, result, attempts, whitelist_bypass, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    chat_id,
+                    user_id,
+                    username,
+                    result,
+                    attempts,
+                    1 if whitelist_bypass else 0,
+                    to_iso(utc_now()),
+                ),
+            )
+            return int(cur.lastrowid)
+
+    def list_verification_logs(self, chat_id: int, limit: int = 100) -> list[dict]:
+        """查询验证审计日志"""
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, chat_id, user_id, username, result, attempts, whitelist_bypass, created_at
+                FROM join_verification_log
+                WHERE chat_id = ?
+                ORDER BY id DESC LIMIT ?
+                """,
+                (chat_id, limit),
+            ).fetchall()
+            return [dict(r) for r in rows]

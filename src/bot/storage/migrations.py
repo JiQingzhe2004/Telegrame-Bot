@@ -87,43 +87,46 @@ MIGRATIONS: list[Migration] = [
           last_violation_at TEXT,
           PRIMARY KEY(chat_id, user_id)
         );
-        CREATE TABLE IF NOT EXISTS whitelists(
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
+        CREATE TABLE IF NOT EXISTS whitelist(
           chat_id INTEGER,
-          type TEXT,
-          value TEXT,
-          created_at TEXT
+          user_id INTEGER,
+          added_by INTEGER,
+          created_at TEXT,
+          PRIMARY KEY(chat_id, user_id)
         );
-        CREATE TABLE IF NOT EXISTS blacklists(
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
+        CREATE TABLE IF NOT EXISTS blacklist_words(
           chat_id INTEGER,
-          type TEXT,
-          value TEXT,
-          created_at TEXT
+          word TEXT,
+          added_by INTEGER,
+          created_at TEXT,
+          PRIMARY KEY(chat_id, word)
         );
         CREATE TABLE IF NOT EXISTS appeals(
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          chat_id INTEGER NOT NULL,
-          user_id INTEGER NOT NULL,
-          message TEXT NOT NULL,
-          created_at TEXT NOT NULL
+          chat_id INTEGER,
+          user_id INTEGER,
+          enforcement_id INTEGER,
+          message TEXT,
+          status TEXT DEFAULT 'pending',
+          reviewed_by INTEGER,
+          reviewed_at TEXT,
+          created_at TEXT
         );
-        CREATE TABLE IF NOT EXISTS enforcement_rollbacks(
+        CREATE TABLE IF NOT EXISTS rollbacks(
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          enforcement_id INTEGER NOT NULL,
-          chat_id INTEGER NOT NULL,
-          user_id INTEGER NOT NULL,
-          status TEXT NOT NULL,
-          reason TEXT NOT NULL,
-          created_at TEXT NOT NULL
+          enforcement_id INTEGER,
+          chat_id INTEGER,
+          user_id INTEGER,
+          status TEXT,
+          reason TEXT,
+          created_at TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_messages_chat_date ON messages(chat_id, date);
         CREATE INDEX IF NOT EXISTS idx_messages_chat_user_date ON messages(chat_id, user_id, date);
         CREATE INDEX IF NOT EXISTS idx_moderation_chat_created ON moderation_decisions(chat_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_enforcement_chat_created ON enforcements(chat_id, created_at);
         """,
-    )
-    ,
+    ),
     Migration(
         version="0002_system_config",
         sql="""
@@ -141,6 +144,32 @@ MIGRATIONS: list[Migration] = [
           created_at TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_setup_sessions_kind ON setup_sessions(kind);
+        """,
+    ),
+    Migration(
+        version="0003_join_verification",
+        sql="""
+        CREATE TABLE IF NOT EXISTS join_verification_questions(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          chat_id INTEGER,
+          question TEXT NOT NULL,
+          options TEXT NOT NULL,
+          answer_index INTEGER NOT NULL,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_jvq_chat ON join_verification_questions(chat_id);
+
+        CREATE TABLE IF NOT EXISTS join_verification_log(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          chat_id INTEGER NOT NULL,
+          user_id INTEGER NOT NULL,
+          username TEXT,
+          result TEXT NOT NULL,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          whitelist_bypass INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_jvl_chat_user ON join_verification_log(chat_id, user_id);
         """,
     ),
 ]

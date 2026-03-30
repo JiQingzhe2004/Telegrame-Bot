@@ -1,12 +1,11 @@
 from __future__ import annotations
 
+import json
 import logging
 from datetime import timedelta
-from datetime import timezone
 from typing import Any
 
 from telegram import Chat, ChatPermissions, InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.constants import MessageEntityType
 from telegram.error import TelegramError
 from telegram.ext import (
     Application,
@@ -18,8 +17,8 @@ from telegram.ext import (
     filters,
 )
 
-from bot.ai.redact import redact_pii
 from bot.ai.openai_client import OpenAiModerator
+from bot.ai.redact import redact_pii
 from bot.domain.models import ChatRef, MessageRef, ModerationContext, UserRef
 from bot.domain.moderation import Enforcer, ModerationService
 from bot.storage.repo import BotRepository
@@ -79,6 +78,25 @@ async def _build_welcome_text(
         return fallback
 
 
+def _restricted_permissions() -> ChatPermissions:
+    return ChatPermissions(
+        can_send_messages=False,
+        can_send_audios=False,
+        can_send_documents=False,
+        can_send_photos=False,
+        can_send_videos=False,
+        can_send_video_notes=False,
+        can_send_voice_notes=False,
+        can_send_polls=False,
+        can_send_other_messages=False,
+        can_add_web_page_previews=False,
+        can_change_info=False,
+        can_invite_users=False,
+        can_pin_messages=False,
+        can_manage_topics=False,
+    )
+
+
 def _verification_release_permissions() -> ChatPermissions:
     return ChatPermissions(
         can_send_messages=True,
@@ -91,21 +109,6 @@ def _verification_release_permissions() -> ChatPermissions:
         can_send_polls=True,
         can_send_other_messages=True,
         can_add_web_page_previews=True,
-    )
-
-
-def _verification_lock_permissions() -> ChatPermissions:
-    return ChatPermissions(
-        can_send_messages=False,
-        can_send_audios=False,
-        can_send_documents=False,
-        can_send_photos=False,
-        can_send_videos=False,
-        can_send_video_notes=False,
-        can_send_voice_notes=False,
-        can_send_polls=False,
-        can_send_other_messages=False,
-        can_add_web_page_previews=False,
         can_change_info=False,
         can_invite_users=False,
         can_pin_messages=False,
@@ -125,13 +128,35 @@ async def _verification_timeout(context: ContextTypes.DEFAULT_TYPE) -> None:
     store = _pending_verifications(context.application)
     if key not in store:
         return
-    store.pop(key, None)
+    entry = store.pop(key, {}) or {}
+    attempts = int(entry.get("attempts", 0))
+
+    repo: BotRepository | None = context.application.bot_data.get("repo")
+    if repo:
+        try:
+            repo.save_verification_log(
+                chat_id=chat_id,
+                user_id=user_id,
+                username=None,
+                result="fail_timeout",
+                attempts=attempts,
+                whitelist_bypass=False,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("save verification log failed: %s", exc)
+
     try:
-        await context.bot.ban_chat_member(chat_id=chat_id, user_id=user_id, until_date=utc_now() + timedelta(minutes=1))
+        await context.bot.ban_chat_member(
+            chat_id=chat_id, user_id=user_id, until_date=utc_now() + timedelta(minutes=1)
+        )
         await context.bot.unban_chat_member(chat_id=chat_id, user_id=user_id, only_if_banned=True)
-        await context.bot.send_message(chat_id=chat_id, text=f"用户 {user_id} 未在限时内完成入群验证，已移出群聊。")
+        await context.bot.send_message(
+            chat_id=chat_id, text=f"用户 {user_id} 未在限时内完成入群验证，已移出群聊。"
+        )
     except TelegramError as exc:
-        logger.warning("join verification timeout action failed chat=%s user=%s err=%s", chat_id, user_id, exc)
+        logger.warning(
+            "join verification timeout action failed chat=%s user=%s err=%s", chat_id, user_id, exc
+        )
 
 
 async def on_join_verify_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -140,12 +165,14 @@ async def on_join_verify_callback(update: Update, context: ContextTypes.DEFAULT_
         return
     payload = query.data.removeprefix(VERIFY_CALLBACK_PREFIX)
     parts = payload.split(":")
-    if len(parts) != 2:
+    # 格式: {chat_id}:{user_id}:{answer}  answer="ok"(button) 或 "0"/"1"/"2"/"3"(quiz)
+    if len(parts) != 3:
         await query.answer("验证参数错误", show_alert=True)
         return
     try:
         chat_id = int(parts[0])
         user_id = int(parts[1])
+        answer = parts[2]
     except ValueError:
         await query.answer("验证参数错误", show_alert=True)
         return
@@ -155,36 +182,106 @@ async def on_join_verify_callback(update: Update, context: ContextTypes.DEFAULT_
         return
 
     runtime_config: RuntimeConfig = context.application.bot_data.get("runtime_config") or RuntimeConfig()
+    repo: BotRepository = context.application.bot_data["repo"]
     key = f"{chat_id}:{user_id}"
     store = _pending_verifications(context.application)
     if key not in store:
         await query.answer("验证已失效，请重新入群。", show_alert=True)
         return
-    store.pop(key, None)
 
-    try:
-        await context.bot.restrict_chat_member(
-            chat_id=chat_id,
-            user_id=user_id,
-            permissions=_verification_release_permissions(),
-        )
-    except TelegramError as exc:
-        logger.warning("release member after verify failed chat=%s user=%s err=%s", chat_id, user_id, exc)
+    entry = store[key]
+    question_type = entry.get("question_type", "button")
+    max_attempts = int(runtime_config.join_verification_max_attempts)
 
-    await query.answer("验证成功")
-    try:
-        await query.edit_message_text(f"验证通过，欢迎 {query.from_user.full_name}。")
-    except TelegramError:
-        pass
+    # 判断答案是否正确
+    if question_type == "quiz":
+        correct_index = entry.get("answer_index")
+        try:
+            passed = int(answer) == int(correct_index)
+        except (ValueError, TypeError):
+            passed = False
+    else:
+        passed = answer == "ok"
 
-    if runtime_config.join_welcome_enabled:
-        welcome = await _build_welcome_text(
-            context,
-            runtime_config,
-            chat_title=update.effective_chat.title if update.effective_chat else None,
-            user_name=query.from_user.full_name,
-        )
-        await context.bot.send_message(chat_id=chat_id, text=welcome)
+    if passed:
+        store.pop(key, None)
+        try:
+            await context.bot.restrict_chat_member(
+                chat_id=chat_id,
+                user_id=user_id,
+                permissions=_verification_release_permissions(),
+            )
+        except TelegramError as exc:
+            logger.warning(
+                "release member after verify failed chat=%s user=%s err=%s", chat_id, user_id, exc
+            )
+
+        try:
+            repo.save_verification_log(
+                chat_id=chat_id,
+                user_id=user_id,
+                username=query.from_user.username,
+                result="pass",
+                attempts=int(entry.get("attempts", 0)) + 1,
+                whitelist_bypass=False,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("save verification log failed: %s", exc)
+
+        await query.answer("验证成功")
+        try:
+            await query.edit_message_text(f"验证通过，欢迎 {query.from_user.full_name}。")
+        except TelegramError:
+            pass
+
+        if runtime_config.join_welcome_enabled:
+            welcome = await _build_welcome_text(
+                context,
+                runtime_config,
+                chat_title=update.effective_chat.title if update.effective_chat else None,
+                user_name=query.from_user.full_name,
+            )
+            await context.bot.send_message(chat_id=chat_id, text=welcome)
+    else:
+        # 答错
+        entry["attempts"] = int(entry.get("attempts", 0)) + 1
+        attempts = int(entry["attempts"])
+        if attempts >= max_attempts:
+            store.pop(key, None)
+            try:
+                repo.save_verification_log(
+                    chat_id=chat_id,
+                    user_id=user_id,
+                    username=query.from_user.username,
+                    result="fail_max_attempts",
+                    attempts=attempts,
+                    whitelist_bypass=False,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("save verification log failed: %s", exc)
+            await query.answer("验证失败次数过多，已移出群聊。", show_alert=True)
+            try:
+                await query.edit_message_text(
+                    f"{query.from_user.full_name} 验证失败次数过多，已被移出群聊。"
+                )
+            except TelegramError:
+                pass
+            try:
+                await context.bot.ban_chat_member(
+                    chat_id=chat_id,
+                    user_id=user_id,
+                    until_date=utc_now() + timedelta(minutes=1),
+                )
+                await context.bot.unban_chat_member(
+                    chat_id=chat_id, user_id=user_id, only_if_banned=True
+                )
+            except TelegramError as exc:
+                logger.warning(
+                    "kick after max attempts failed chat=%s user=%s err=%s", chat_id, user_id, exc
+                )
+        else:
+            remaining = max_attempts - attempts
+            await query.answer(f"答案错误，还剩 {remaining} 次机会。", show_alert=True)
 
 
 async def on_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -201,33 +298,118 @@ async def on_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE
     repo: BotRepository = context.application.bot_data["repo"]
     runtime_config: RuntimeConfig = context.application.bot_data.get("runtime_config") or RuntimeConfig()
     timeout_seconds = max(30, int(runtime_config.join_verification_timeout_seconds))
+    max_attempts = int(runtime_config.join_verification_max_attempts)
+    question_type = runtime_config.join_verification_question_type
+    whitelist_bypass_enabled = runtime_config.join_verification_whitelist_bypass
 
     for joined in members:
         if joined.is_bot:
             continue
-        chat_ref = ChatRef(chat_id=chat.id, type=chat.type, title=chat.title)
-        user_ref = UserRef(
-            user_id=joined.id,
-            username=joined.username,
-            is_bot=bool(joined.is_bot),
-            first_name=joined.first_name,
-            last_name=joined.last_name,
-        )
-        repo.upsert_chat_user(chat_ref, user_ref)
-        display_name = joined.full_name or joined.username or str(joined.id)
 
-        if runtime_config.join_verification_enabled:
-            try:
-                await context.bot.restrict_chat_member(
-                    chat_id=chat.id,
-                    user_id=joined.id,
-                    permissions=_verification_lock_permissions(),
+        display_name = joined.full_name or joined.username or str(joined.id)
+        repo.upsert_chat_user(
+            ChatRef(chat_id=chat.id, type=chat.type, title=chat.title),
+            UserRef(
+                user_id=joined.id,
+                username=joined.username,
+                is_bot=bool(joined.is_bot),
+                first_name=joined.first_name,
+                last_name=joined.last_name,
+            ),
+        )
+
+        if not runtime_config.join_verification_enabled:
+            if runtime_config.join_welcome_enabled:
+                welcome = await _build_welcome_text(
+                    context, runtime_config, chat_title=chat.title, user_name=display_name
                 )
-            except TelegramError as exc:
-                logger.warning("join verification lock failed chat=%s user=%s err=%s", chat.id, joined.id, exc)
-            keyboard = InlineKeyboardMarkup(
-                [[InlineKeyboardButton(text="点击完成入群验证", callback_data=f"{VERIFY_CALLBACK_PREFIX}{chat.id}:{joined.id}")]]
+                await msg.reply_text(welcome)
+            continue
+
+        # 白名单豁免
+        if whitelist_bypass_enabled:
+            try:
+                whitelisted = repo.is_whitelisted(chat.id, joined.id, joined.username)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("is_whitelisted check failed: %s", exc)
+                whitelisted = False
+            if whitelisted:
+                try:
+                    repo.save_verification_log(
+                        chat_id=chat.id,
+                        user_id=joined.id,
+                        username=joined.username,
+                        result="whitelist_bypass",
+                        attempts=0,
+                        whitelist_bypass=True,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("save verification log failed: %s", exc)
+                if runtime_config.join_welcome_enabled:
+                    welcome = await _build_welcome_text(
+                        context, runtime_config, chat_title=chat.title, user_name=display_name
+                    )
+                    await msg.reply_text(welcome)
+                continue
+
+        # 限制发言
+        try:
+            await context.bot.restrict_chat_member(
+                chat_id=chat.id,
+                user_id=joined.id,
+                permissions=_restricted_permissions(),
             )
+        except TelegramError as exc:
+            logger.warning(
+                "restrict member failed chat=%s user=%s err=%s", chat.id, joined.id, exc
+            )
+
+        # 决定验证类型（quiz 无题库则降级为 button）
+        actual_question_type = question_type
+        question_data: dict | None = None
+        if question_type == "quiz":
+            try:
+                question_data = repo.get_verification_question(chat.id)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("get verification question failed: %s", exc)
+            if not question_data:
+                actual_question_type = "button"
+
+        if actual_question_type == "quiz" and question_data:
+            raw_options = question_data["options"]
+            options = json.loads(raw_options) if isinstance(raw_options, str) else raw_options
+            labels = ["A", "B", "C", "D"]
+            buttons = [
+                [
+                    InlineKeyboardButton(
+                        f"{labels[i]}. {opt}",
+                        callback_data=f"{VERIFY_CALLBACK_PREFIX}{chat.id}:{joined.id}:{i}",
+                    )
+                ]
+                for i, opt in enumerate(options[:4])
+            ]
+            keyboard = InlineKeyboardMarkup(buttons)
+            question_text = question_data["question"]
+            verify_msg = await msg.reply_text(
+                f"欢迎 {display_name}，请在 {timeout_seconds} 秒内回答以下问题完成入群验证：\n\n{question_text}",
+                reply_markup=keyboard,
+            )
+            key = f"{chat.id}:{joined.id}"
+            _pending_verifications(context.application)[key] = {
+                "verify_message_id": verify_msg.message_id,
+                "attempts": 0,
+                "question_id": question_data["id"],
+                "answer_index": question_data["answer_index"],
+                "question_type": "quiz",
+            }
+        else:
+            # button 模式
+            keyboard = InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    "✅ 点击完成入群验证",
+                    callback_data=f"{VERIFY_CALLBACK_PREFIX}{chat.id}:{joined.id}:ok",
+                )
+            ]])
             verify_msg = await msg.reply_text(
                 f"欢迎 {display_name}，请在 {timeout_seconds} 秒内点击下方按钮完成验证。",
                 reply_markup=keyboard,
@@ -235,24 +417,19 @@ async def on_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE
             key = f"{chat.id}:{joined.id}"
             _pending_verifications(context.application)[key] = {
                 "verify_message_id": verify_msg.message_id,
+                "attempts": 0,
+                "question_id": None,
+                "answer_index": None,
+                "question_type": "button",
             }
-            if context.application.job_queue:
-                context.application.job_queue.run_once(
-                    _verification_timeout,
-                    when=timeout_seconds,
-                    data={"chat_id": chat.id, "user_id": joined.id},
-                    name=f"join-verify-timeout-{chat.id}-{joined.id}",
-                )
-            continue
 
-        if runtime_config.join_welcome_enabled:
-            welcome = await _build_welcome_text(
-                context,
-                runtime_config,
-                chat_title=chat.title,
-                user_name=display_name,
+        if context.application.job_queue:
+            context.application.job_queue.run_once(
+                _verification_timeout,
+                when=timeout_seconds,
+                data={"chat_id": chat.id, "user_id": joined.id},
+                name=f"join-verify-timeout-{chat.id}-{joined.id}",
             )
-            await msg.reply_text(welcome)
 
 
 async def on_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -269,72 +446,56 @@ async def on_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     repo: BotRepository = context.application.bot_data["repo"]
     service: ModerationService = context.application.bot_data["moderation_service"]
     enforcer: Enforcer = context.application.bot_data["enforcer"]
+    runtime_config: RuntimeConfig = context.application.bot_data.get("runtime_config") or RuntimeConfig()
+
+    user = update.effective_user
+    if user.is_bot:
+        return
+    if await is_admin(context.bot, chat.id, user.id):
+        return
 
     chat_ref = ChatRef(chat_id=chat.id, type=chat.type, title=chat.title)
     user_ref = UserRef(
-        user_id=update.effective_user.id,
-        username=update.effective_user.username,
-        is_bot=bool(update.effective_user.is_bot),
-        first_name=update.effective_user.first_name,
-        last_name=update.effective_user.last_name,
+        user_id=user.id,
+        username=user.username,
+        is_bot=bool(user.is_bot),
+        first_name=user.first_name,
+        last_name=user.last_name,
     )
     repo.upsert_chat_user(chat_ref, user_ref)
 
-    # 管理员 @机器人 时，自动回显 Chat ID，方便前端自动选择。
-    if text and msg.entities:
-        me = context.application.bot_data.get("bot_me")
-        if me is None:
-            me = await context.bot.get_me()
-            context.application.bot_data["bot_me"] = me
-        mention_name = (me.username or "").lower()
-        mentioned = False
-        for entity in msg.entities:
-            if entity.type == MessageEntityType.MENTION:
-                token = text[entity.offset : entity.offset + entity.length].strip().lstrip("@").lower()
-                if token == mention_name:
-                    mentioned = True
-                    break
-        if mentioned and await is_admin(context.bot, chat.id, user_ref.user_id):
-            await msg.reply_text(f"当前群 Chat ID: {chat.id}")
     settings = repo.get_settings(chat.id)
-    whitelist_hit = repo.is_whitelisted(chat.id, user_ref.user_id, user_ref.username)
-    strike_score = repo.get_strike_score(chat.id, user_ref.user_id)
-    recent = repo.recent_texts(chat.id, user_ref.user_id, limit=6)
-    if text:
-        recent.insert(0, text)
+    strike_score = repo.get_strike_score(chat.id, user.id)
+    whitelist_hit = repo.is_whitelisted(chat.id, user.id, user.username)
     blacklist_words = repo.get_blacklist_words(chat.id)
-    message_ref = MessageRef(
-        chat_id=chat.id,
-        message_id=msg.message_id,
-        user_id=user_ref.user_id,
-        date=msg.date if msg.date.tzinfo else msg.date.replace(tzinfo=timezone.utc),
-        text=text,
-        meta={
-            "has_entities": bool(msg.entities),
-            "has_photo": bool(msg.photo),
-            "has_document": bool(msg.document),
-            "received_at": utc_now().isoformat(),
-        },
-    )
+    recent_texts = repo.recent_texts(chat.id, user.id)
 
-    mctx = ModerationContext(
+    mod_context = ModerationContext(
         chat=chat_ref,
         user=user_ref,
         settings=settings,
         strike_score=strike_score,
         whitelist_hit=whitelist_hit,
         blacklist_words=blacklist_words,
-        recent_message_texts=recent,
+        recent_message_texts=recent_texts,
     )
-    decision = await service.decide(message_ref, mctx)
-    repo.save_decision(message_ref, decision)
 
-    # 默认仅保存违规样本
-    if decision.final_level > 0:
-        repo.save_violation_message(message_ref, redact_pii(text))
-        repo.add_strike(chat.id, user_ref.user_id, inc=1)
+    message_ref = MessageRef(
+        chat_id=chat.id,
+        message_id=msg.message_id,
+        user_id=user.id,
+        date=msg.date,
+        text=text,
+        meta={},
+    )
 
-    perms = await get_permission_snapshot(context.bot, chat.id)
+    redacted = redact_pii(text)
+    repo.save_violation_message(message_ref, redacted)
+
+    ai_moderator: OpenAiModerator | None = context.application.bot_data.get("ai_moderator")
+    decision = await service.evaluate(message_ref, mod_context, ai_moderator)
+
+    perms = await get_permission_snapshot(context.bot, chat.id, user.id)
     enforcement = await enforcer.apply(context.bot, message_ref, decision, perms)
     if enforcement.applied_action != "none":
         repo.save_enforcement(message_ref, enforcement)
