@@ -287,6 +287,10 @@ function AdminConsole({
 
   const [status, setStatus] = useState<Record<string, unknown> | null>(null);
   const [adminOverview, setAdminOverview] = useState<AdminOverview | null>(null);
+  const [adminSubTab, setAdminSubTab] = useState("overview");
+  const [memberSearch, setMemberSearch] = useState("");
+  const [memberList, setMemberList] = useState<Array<{ user_id: number; username: string | null; first_name: string | null; last_name: string | null; last_message_at: string | null; strike_score: number }>>([]);
+  const [memberAutoRefresh, setMemberAutoRefresh] = useState(true);
   const [settings, setSettings] = useState<ChatSettings | null>(null);
   const [knownChats, setKnownChats] = useState<KnownChat[]>([]);
   const [whitelist, setWhitelist] = useState<ListItem[]>([]);
@@ -326,11 +330,12 @@ function AdminConsole({
     setLoading(true);
     setMessage("");
     try {
-      const [runtime, s, chats, ov, cfg, wl, bl, ad, en, ap] = await Promise.all([
+      const [runtime, s, chats, ov, members, cfg, wl, bl, ad, en, ap] = await Promise.all([
         client.getRuntimeState(),
         client.getStatus(adminToken),
         client.listChats(adminToken),
         client.adminOverview(deferredChatId, adminToken),
+        client.adminListMembers(deferredChatId, adminToken, 200, memberSearch),
         client.getSettings(deferredChatId, adminToken),
         client.listWhitelist(deferredChatId, adminToken),
         client.listBlacklist(deferredChatId, adminToken),
@@ -346,6 +351,7 @@ function AdminConsole({
         setStatus(s);
         setKnownChats(chats);
         setAdminOverview(ov);
+        setMemberList(members);
         setSettings(cfg);
         setWhitelist(wl);
         setBlacklist(bl);
@@ -358,6 +364,16 @@ function AdminConsole({
       setMessage(`加载失败：${String(err)}`);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadAdminMembers = async () => {
+    if (!baseUrl || !adminToken || !deferredChatId) return;
+    try {
+      const members = await client.adminListMembers(deferredChatId, adminToken, 200, memberSearch);
+      setMemberList(members);
+    } catch (err) {
+      setMessage(`加载成员失败：${String(err)}`);
     }
   };
 
@@ -386,6 +402,14 @@ function AdminConsole({
     if (!canLoad) return;
     void loadAll();
   }, [baseUrl, adminToken, deferredChatId, canLoad]);
+
+  useEffect(() => {
+    if (!canLoad || !memberAutoRefresh || adminSubTab !== "members") return;
+    const timer = setInterval(() => {
+      void loadAdminMembers();
+    }, 6000);
+    return () => clearInterval(timer);
+  }, [canLoad, memberAutoRefresh, adminSubTab, deferredChatId, adminToken, memberSearch]);
 
   const updateSetting = async (payload: Partial<ChatSettings>) => {
     if (!settings) return;
@@ -549,171 +573,238 @@ function AdminConsole({
         </TabsList>
 
         <TabsContent value="admin">
-          <div className="grid gap-4">
-            <Card className="glass-panel">
-              <CardHeader>
-                <CardTitle>群概览与能力矩阵</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-3 md:grid-cols-2">
-                <div className="rounded-md border bg-white p-3">
-                  <div className="text-sm text-muted-foreground">群名</div>
-                  <div className="font-medium">{adminOverview?.chat.title || "-"}</div>
-                </div>
-                <div className="rounded-md border bg-white p-3">
-                  <div className="text-sm text-muted-foreground">成员数</div>
-                  <div className="font-medium">{adminOverview?.member_count ?? "-"}</div>
-                </div>
-                <div className="rounded-md border bg-white p-3 md:col-span-2">
-                  <div className="text-sm text-muted-foreground mb-2">可用能力</div>
-                  <div className="grid gap-2 md:grid-cols-3">
-                    {Object.entries(adminOverview?.capabilities || {}).map(([k, v]) => (
-                      <div key={k} className="flex items-center justify-between rounded border px-2 py-1 text-xs">
-                        <span>{k}</span>
-                        <Badge variant={v ? "secondary" : "outline"}>{v ? "可用" : "不可用"}</Badge>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+          <Tabs value={adminSubTab} onValueChange={setAdminSubTab}>
+            <TabsList>
+              <TabsTrigger value="overview">概览</TabsTrigger>
+              <TabsTrigger value="members">成员</TabsTrigger>
+              <TabsTrigger value="messages">消息/邀请</TabsTrigger>
+              <TabsTrigger value="admins">管理员/群资料</TabsTrigger>
+            </TabsList>
 
-            <Card className="glass-panel">
-              <CardHeader>
-                <CardTitle>成员与消息动作</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-3 md:grid-cols-2">
-                <div className="flex flex-col gap-2">
-                  <Label>目标用户 ID</Label>
-                  <Input value={targetUserId} onChange={(e) => setTargetUserId(e.target.value)} />
-                  <div className="flex gap-2">
-                    <Button variant="outline" onClick={() => void runAdminAction(() => client.adminGetMember(deferredChatId, adminToken, targetUserId))}>
-                      查询成员
-                    </Button>
-                    <Button variant="outline" onClick={() => void runAdminAction(() => client.adminMuteMember(deferredChatId, adminToken, targetUserId, muteSeconds))}>
-                      禁言
-                    </Button>
-                    <Button variant="outline" onClick={() => void runAdminAction(() => client.adminUnmuteMember(deferredChatId, adminToken, targetUserId))}>
-                      解禁言
-                    </Button>
+            <TabsContent value="overview">
+              <Card className="glass-panel">
+                <CardHeader>
+                  <CardTitle>群概览与能力矩阵</CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-3 md:grid-cols-2">
+                  <div className="rounded-md border bg-white p-3">
+                    <div className="text-sm text-muted-foreground">群名</div>
+                    <div className="font-medium">{adminOverview?.chat.title || "-"}</div>
                   </div>
-                  <div className="flex gap-2">
-                    <Input type="number" value={muteSeconds} onChange={(e) => setMuteSeconds(Number(e.target.value))} />
-                    <Button
-                      variant="destructive"
-                      onClick={() =>
-                        askConfirm(`确认封禁 chat=${deferredChatId}, user=${targetUserId} ?`, async () => {
-                          await runAdminAction(() => client.adminBanMember(deferredChatId, adminToken, targetUserId));
-                        })
-                      }
-                    >
-                      封禁
-                    </Button>
-                    <Button variant="outline" onClick={() => void runAdminAction(() => client.adminUnbanMember(deferredChatId, adminToken, targetUserId))}>
-                      解封
-                    </Button>
+                  <div className="rounded-md border bg-white p-3">
+                    <div className="text-sm text-muted-foreground">成员数</div>
+                    <div className="font-medium">{adminOverview?.member_count ?? "-"}</div>
                   </div>
-                </div>
+                  <div className="rounded-md border bg-white p-3 md:col-span-2">
+                    <div className="text-sm text-muted-foreground mb-2">可用能力</div>
+                    <div className="grid gap-2 md:grid-cols-3">
+                      {Object.entries(adminOverview?.capabilities || {}).map(([k, v]) => (
+                        <div key={k} className="flex items-center justify-between rounded border px-2 py-1 text-xs">
+                          <span>{k}</span>
+                          <Badge variant={v ? "secondary" : "outline"}>{v ? "可用" : "不可用"}</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
 
-                <div className="flex flex-col gap-2">
-                  <Label>目标消息 ID</Label>
-                  <Input value={targetMessageId} onChange={(e) => setTargetMessageId(e.target.value)} />
+            <TabsContent value="members">
+              <Card className="glass-panel">
+                <CardHeader>
+                  <CardTitle>成员实时面板</CardTitle>
+                  <CardDescription>成员来源于“已发言/已处置”用户池，不是 Telegram 全量成员。</CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-3">
                   <div className="flex gap-2">
-                    <Button variant="outline" onClick={() => void runAdminAction(() => client.adminDeleteMessage(deferredChatId, adminToken, targetMessageId))}>
-                      删除消息
+                    <Input value={memberSearch} onChange={(e) => setMemberSearch(e.target.value)} placeholder="按 user_id/用户名/姓名搜索" />
+                    <Button variant="outline" onClick={() => void loadAdminMembers()}>
+                      刷新成员
                     </Button>
-                    <Button variant="outline" onClick={() => void runAdminAction(() => client.adminPinMessage(deferredChatId, adminToken, targetMessageId))}>
-                      置顶消息
+                    <Button variant={memberAutoRefresh ? "secondary" : "outline"} onClick={() => setMemberAutoRefresh(!memberAutoRefresh)}>
+                      {memberAutoRefresh ? "实时中" : "开启实时"}
                     </Button>
-                    <Button variant="outline" onClick={() => void runAdminAction(() => client.adminUnpinMessage(deferredChatId, adminToken))}>
-                      取消置顶
-                    </Button>
+                  </div>
+                  <div className="max-h-72 overflow-auto rounded-md border bg-white">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>用户</TableHead>
+                          <TableHead>user_id</TableHead>
+                          <TableHead>最后活跃</TableHead>
+                          <TableHead>违规分</TableHead>
+                          <TableHead>操作</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {memberList.map((m) => (
+                          <TableRow key={m.user_id}>
+                            <TableCell>{m.username || `${m.first_name || ""} ${m.last_name || ""}`.trim() || "-"}</TableCell>
+                            <TableCell className="font-mono text-xs">{m.user_id}</TableCell>
+                            <TableCell>{m.last_message_at ? formatTime(m.last_message_at) : "-"}</TableCell>
+                            <TableCell>{m.strike_score}</TableCell>
+                            <TableCell>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  setTargetUserId(String(m.user_id));
+                                  setAdminSubTab("messages");
+                                }}
+                              >
+                                选中
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <Input value={targetUserId} onChange={(e) => setTargetUserId(e.target.value)} placeholder="目标用户 ID" />
+                    <div className="flex gap-2">
+                      <Input type="number" value={muteSeconds} onChange={(e) => setMuteSeconds(Number(e.target.value))} />
+                      <Button variant="outline" onClick={() => void runAdminAction(() => client.adminMuteMember(deferredChatId, adminToken, targetUserId, muteSeconds))}>
+                        禁言
+                      </Button>
+                      <Button variant="outline" onClick={() => void runAdminAction(() => client.adminUnmuteMember(deferredChatId, adminToken, targetUserId))}>
+                        解禁
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        onClick={() =>
+                          askConfirm(`确认封禁 chat=${deferredChatId}, user=${targetUserId} ?`, async () => {
+                            await runAdminAction(() => client.adminBanMember(deferredChatId, adminToken, targetUserId));
+                          })
+                        }
+                      >
+                        封禁
+                      </Button>
+                      <Button variant="outline" onClick={() => void runAdminAction(() => client.adminUnbanMember(deferredChatId, adminToken, targetUserId))}>
+                        解封
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="messages">
+              <Card className="glass-panel">
+                <CardHeader>
+                  <CardTitle>消息与邀请链接</CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-3">
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <Input value={targetMessageId} onChange={(e) => setTargetMessageId(e.target.value)} placeholder="目标 message_id" />
+                    <div className="flex gap-2">
+                      <Button variant="outline" onClick={() => void runAdminAction(() => client.adminDeleteMessage(deferredChatId, adminToken, targetMessageId))}>
+                        删除消息
+                      </Button>
+                      <Button variant="outline" onClick={() => void runAdminAction(() => client.adminPinMessage(deferredChatId, adminToken, targetMessageId))}>
+                        置顶
+                      </Button>
+                      <Button variant="outline" onClick={() => void runAdminAction(() => client.adminUnpinMessage(deferredChatId, adminToken))}>
+                        取消置顶
+                      </Button>
+                    </div>
                   </div>
                   <Separator />
-                  <Label>邀请链接</Label>
-                  <div className="flex gap-2">
-                    <Input value={inviteName} onChange={(e) => setInviteName(e.target.value)} placeholder="链接名称(可选)" />
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <Input value={inviteName} onChange={(e) => setInviteName(e.target.value)} placeholder="邀请链接名称(可选)" />
                     <Button variant="outline" onClick={() => void runAdminAction(() => client.adminCreateInvite(deferredChatId, adminToken, inviteName))}>
                       生成邀请链接
                     </Button>
                   </div>
-                  <div className="flex gap-2">
-                    <Input value={inviteLink} onChange={(e) => setInviteLink(e.target.value)} placeholder="待撤销 invite link" />
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <Input value={inviteLink} onChange={(e) => setInviteLink(e.target.value)} placeholder="要撤销的 invite_link" />
                     <Button variant="outline" onClick={() => void runAdminAction(() => client.adminRevokeInvite(deferredChatId, adminToken, inviteLink))}>
                       撤销链接
                     </Button>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="glass-panel">
-              <CardHeader>
-                <CardTitle>管理员与群资料</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-3 md:grid-cols-2">
-                <div className="flex flex-col gap-2">
-                  <Label>管理员用户 ID</Label>
-                  <Input value={targetUserId} onChange={(e) => setTargetUserId(e.target.value)} />
-                  <Label>管理员头衔</Label>
-                  <Input value={adminTitle} onChange={(e) => setAdminTitle(e.target.value)} />
-                  <div className="flex gap-2">
-                    <Button
-                      variant="destructive"
-                      onClick={() =>
-                        askConfirm(`确认提权 chat=${deferredChatId}, user=${targetUserId} ?`, async () => {
-                          await runAdminAction(() =>
-                            client.adminPromote(deferredChatId, adminToken, targetUserId, {
-                              can_manage_chat: true,
-                              can_delete_messages: true,
-                              can_invite_users: true,
-                              can_restrict_members: true,
-                              can_pin_messages: true,
-                              can_manage_video_chats: true,
-                            }),
-                          );
-                        })
-                      }
-                    >
-                      提升管理员
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      onClick={() =>
-                        askConfirm(`确认降权 chat=${deferredChatId}, user=${targetUserId} ?`, async () => {
-                          await runAdminAction(() => client.adminDemote(deferredChatId, adminToken, targetUserId));
-                        })
-                      }
-                    >
-                      移除管理员
-                    </Button>
-                    <Button variant="outline" onClick={() => void runAdminAction(() => client.adminSetTitle(deferredChatId, adminToken, targetUserId, adminTitle))}>
-                      设置头衔
-                    </Button>
-                  </div>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label>群标题</Label>
-                  <Input value={profileTitle} onChange={(e) => setProfileTitle(e.target.value)} />
-                  <Label>群描述</Label>
-                  <Input value={profileDescription} onChange={(e) => setProfileDescription(e.target.value)} />
-                  <Button variant="outline" onClick={() => void runAdminAction(() => client.adminUpdateProfile(deferredChatId, adminToken, { title: profileTitle, description: profileDescription }))}>
-                    更新群资料
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {adminActionResult && (
-              <Card className="glass-panel">
-                <CardHeader>
-                  <CardTitle>动作结果</CardTitle>
-                </CardHeader>
-                <CardContent className="text-sm">
-                  <pre className="whitespace-pre-wrap text-xs font-mono">{JSON.stringify(adminActionResult, null, 2)}</pre>
                 </CardContent>
               </Card>
-            )}
-          </div>
+            </TabsContent>
+
+            <TabsContent value="admins">
+              <Card className="glass-panel">
+                <CardHeader>
+                  <CardTitle>管理员与群资料</CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-3 md:grid-cols-2">
+                  <div className="flex flex-col gap-2">
+                    <Label>管理员用户 ID</Label>
+                    <Input value={targetUserId} onChange={(e) => setTargetUserId(e.target.value)} />
+                    <Label>管理员头衔</Label>
+                    <Input value={adminTitle} onChange={(e) => setAdminTitle(e.target.value)} />
+                    <div className="flex gap-2">
+                      <Button
+                        variant="destructive"
+                        onClick={() =>
+                          askConfirm(`确认提权 chat=${deferredChatId}, user=${targetUserId} ?`, async () => {
+                            await runAdminAction(() =>
+                              client.adminPromote(deferredChatId, adminToken, targetUserId, {
+                                can_manage_chat: true,
+                                can_delete_messages: true,
+                                can_invite_users: true,
+                                can_restrict_members: true,
+                                can_pin_messages: true,
+                                can_manage_video_chats: true,
+                              }),
+                            );
+                          })
+                        }
+                      >
+                        提升管理员
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        onClick={() =>
+                          askConfirm(`确认降权 chat=${deferredChatId}, user=${targetUserId} ?`, async () => {
+                            await runAdminAction(() => client.adminDemote(deferredChatId, adminToken, targetUserId));
+                          })
+                        }
+                      >
+                        移除管理员
+                      </Button>
+                      <Button variant="outline" onClick={() => void runAdminAction(() => client.adminSetTitle(deferredChatId, adminToken, targetUserId, adminTitle))}>
+                        设置头衔
+                      </Button>
+                    </div>
+                    <div className="rounded-md border bg-white p-2 text-xs">
+                      {adminOverview?.administrators?.slice(0, 8).map((a) => (
+                        <div key={a.user_id} className="flex justify-between py-1">
+                          <span>{a.full_name}</span>
+                          <span className="font-mono">{a.user_id}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label>群标题</Label>
+                    <Input value={profileTitle} onChange={(e) => setProfileTitle(e.target.value)} />
+                    <Label>群描述</Label>
+                    <Input value={profileDescription} onChange={(e) => setProfileDescription(e.target.value)} />
+                    <Button variant="outline" onClick={() => void runAdminAction(() => client.adminUpdateProfile(deferredChatId, adminToken, { title: profileTitle, description: profileDescription }))}>
+                      更新群资料
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
+
+          {adminActionResult && (
+            <Card className="glass-panel mt-4">
+              <CardHeader>
+                <CardTitle>动作结果</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm">
+                <pre className="whitespace-pre-wrap text-xs font-mono">{JSON.stringify(adminActionResult, null, 2)}</pre>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="settings">

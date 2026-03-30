@@ -51,3 +51,5 @@ def test_repo_migration_and_basic_ops(tmp_path):
     assert len(audits) == 1
     chats = repo.list_chats()
     assert any(int(c["chat_id"]) == 1 for c in chats)
+    members = repo.list_chat_members(1)
+    assert any(int(m["user_id"]) == 2 for m in members)

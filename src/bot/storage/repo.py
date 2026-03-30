@@ -349,6 +349,57 @@ class BotRepository:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def list_chat_members(self, chat_id: int, limit: int = 200, query: str | None = None) -> list[dict[str, Any]]:
+        q = (query or "").strip()
+        where_sql = ""
+        params: list[Any] = [chat_id, chat_id, chat_id, chat_id]
+        if q:
+            where_sql = """
+            WHERE
+              CAST(ids.user_id AS TEXT) LIKE ? OR
+              COALESCE(u.username, '') LIKE ? OR
+              COALESCE(u.first_name, '') LIKE ? OR
+              COALESCE(u.last_name, '') LIKE ?
+            """
+            like = f"%{q}%"
+            params.extend([like, like, like, like])
+        params.append(limit)
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                f"""
+                WITH ids AS (
+                  SELECT DISTINCT user_id FROM messages WHERE chat_id = ?
+                  UNION
+                  SELECT DISTINCT user_id FROM enforcements WHERE chat_id = ? AND user_id IS NOT NULL
+                ),
+                latest_msg AS (
+                  SELECT user_id, MAX(date) AS last_message_at
+                  FROM messages
+                  WHERE chat_id = ?
+                  GROUP BY user_id
+                )
+                SELECT
+                  ids.user_id AS user_id,
+                  u.username AS username,
+                  u.first_name AS first_name,
+                  u.last_name AS last_name,
+                  lm.last_message_at AS last_message_at,
+                  COALESCE(us.score, 0) AS strike_score
+                FROM ids
+                LEFT JOIN users u ON u.user_id = ids.user_id
+                LEFT JOIN latest_msg lm ON lm.user_id = ids.user_id
+                LEFT JOIN user_strikes us ON us.chat_id = ? AND us.user_id = ids.user_id
+                {where_sql}
+                ORDER BY
+                  CASE WHEN lm.last_message_at IS NULL THEN 1 ELSE 0 END,
+                  lm.last_message_at DESC,
+                  ids.user_id DESC
+                LIMIT ?
+                """,
+                params,
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def save_admin_action(
         self,
         chat_id: int,

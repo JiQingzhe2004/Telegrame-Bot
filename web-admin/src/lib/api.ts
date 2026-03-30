@@ -104,6 +104,15 @@ export type AdminOverview = {
   capabilities: Record<string, boolean>;
 };
 
+export type ChatMemberBrief = {
+  user_id: number;
+  username: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  last_message_at: string | null;
+  strike_score: number;
+};
+
 export class ApiClient {
   constructor(private readonly baseUrl: string) {}
 
@@ -269,6 +278,15 @@ export class ApiClient {
     return this.request<AdminOverview>(`/api/v1/chats/${chatId}/admin/overview`, {
       headers: this.adminHeaders(adminToken),
     });
+  }
+
+  adminListMembers(chatId: string, adminToken: string, limit = 200, q = "") {
+    return this.request<ChatMemberBrief[]>(
+      `/api/v1/chats/${chatId}/admin/members?limit=${limit}&q=${encodeURIComponent(q)}`,
+      {
+        headers: this.adminHeaders(adminToken),
+      },
+    );
   }
 
   adminGetMember(chatId: string, adminToken: string, userId: string) {
