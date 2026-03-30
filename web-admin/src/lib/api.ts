@@ -76,6 +76,34 @@ export type KnownChat = {
   updated_at: string | null;
 };
 
+export type AdminActionResult = {
+  action_supported: boolean;
+  permission_required: string[];
+  permission_ok: boolean;
+  applied: boolean;
+  reason: string;
+  telegram_error_code?: number | null;
+  data?: Record<string, unknown> | null;
+};
+
+export type AdminOverview = {
+  chat: {
+    id: number;
+    type: string;
+    title: string | null;
+    description: string | null;
+  };
+  member_count: number;
+  administrators: Array<{
+    user_id: number;
+    username: string | null;
+    full_name: string;
+    status: string;
+    custom_title: string | null;
+  }>;
+  capabilities: Record<string, boolean>;
+};
+
 export class ApiClient {
   constructor(private readonly baseUrl: string) {}
 
@@ -234,6 +262,115 @@ export class ApiClient {
     return this.request<{ reason: string }>(`/api/v1/enforcements/${enforcementId}/rollback`, {
       method: "POST",
       headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  adminOverview(chatId: string, adminToken: string) {
+    return this.request<AdminOverview>(`/api/v1/chats/${chatId}/admin/overview`, {
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  adminGetMember(chatId: string, adminToken: string, userId: string) {
+    return this.request<AdminActionResult>(`/api/v1/chats/${chatId}/admin/members/${userId}`, {
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  adminUpdateProfile(chatId: string, adminToken: string, payload: { title?: string; description?: string }) {
+    return this.request<AdminActionResult>(`/api/v1/chats/${chatId}/admin/profile`, {
+      method: "PUT",
+      headers: this.adminHeaders(adminToken),
+      body: JSON.stringify(payload),
+    });
+  }
+
+  adminDeleteMessage(chatId: string, adminToken: string, messageId: string) {
+    return this.request<AdminActionResult>(`/api/v1/chats/${chatId}/admin/messages/${messageId}/delete`, {
+      method: "POST",
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  adminPinMessage(chatId: string, adminToken: string, messageId: string) {
+    return this.request<AdminActionResult>(`/api/v1/chats/${chatId}/admin/messages/${messageId}/pin`, {
+      method: "POST",
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  adminUnpinMessage(chatId: string, adminToken: string) {
+    return this.request<AdminActionResult>(`/api/v1/chats/${chatId}/admin/messages/unpin`, {
+      method: "POST",
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  adminMuteMember(chatId: string, adminToken: string, userId: string, durationSeconds: number) {
+    return this.request<AdminActionResult>(`/api/v1/chats/${chatId}/admin/members/${userId}/mute`, {
+      method: "POST",
+      headers: this.adminHeaders(adminToken),
+      body: JSON.stringify({ duration_seconds: durationSeconds }),
+    });
+  }
+
+  adminUnmuteMember(chatId: string, adminToken: string, userId: string) {
+    return this.request<AdminActionResult>(`/api/v1/chats/${chatId}/admin/members/${userId}/unmute`, {
+      method: "POST",
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  adminBanMember(chatId: string, adminToken: string, userId: string) {
+    return this.request<AdminActionResult>(`/api/v1/chats/${chatId}/admin/members/${userId}/ban`, {
+      method: "POST",
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  adminUnbanMember(chatId: string, adminToken: string, userId: string) {
+    return this.request<AdminActionResult>(`/api/v1/chats/${chatId}/admin/members/${userId}/unban`, {
+      method: "POST",
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  adminCreateInvite(chatId: string, adminToken: string, name?: string) {
+    return this.request<AdminActionResult>(`/api/v1/chats/${chatId}/admin/invite-links/create`, {
+      method: "POST",
+      headers: this.adminHeaders(adminToken),
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  adminRevokeInvite(chatId: string, adminToken: string, inviteLink: string) {
+    return this.request<AdminActionResult>(`/api/v1/chats/${chatId}/admin/invite-links/revoke`, {
+      method: "POST",
+      headers: this.adminHeaders(adminToken),
+      body: JSON.stringify({ invite_link: inviteLink }),
+    });
+  }
+
+  adminPromote(chatId: string, adminToken: string, userId: string, payload: Record<string, boolean>) {
+    return this.request<AdminActionResult>(`/api/v1/chats/${chatId}/admin/admins/${userId}/promote`, {
+      method: "POST",
+      headers: this.adminHeaders(adminToken),
+      body: JSON.stringify(payload),
+    });
+  }
+
+  adminDemote(chatId: string, adminToken: string, userId: string) {
+    return this.request<AdminActionResult>(`/api/v1/chats/${chatId}/admin/admins/${userId}/demote`, {
+      method: "POST",
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  adminSetTitle(chatId: string, adminToken: string, userId: string, title: string) {
+    return this.request<AdminActionResult>(`/api/v1/chats/${chatId}/admin/admins/${userId}/title`, {
+      method: "POST",
+      headers: this.adminHeaders(adminToken),
+      body: JSON.stringify({ title }),
     });
   }
 }

@@ -348,3 +348,33 @@ class BotRepository:
                 (limit,),
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def save_admin_action(
+        self,
+        chat_id: int,
+        action: str,
+        reason: str,
+        target: dict[str, Any] | None = None,
+        user_id: int | None = None,
+        message_id: int | None = None,
+        duration_seconds: int | None = None,
+    ) -> int:
+        payload = {"reason": reason, "target": target or {}}
+        with self.db.connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO enforcements(chat_id, user_id, message_id, action, duration_seconds, reason, operator, created_at)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    chat_id,
+                    user_id,
+                    message_id,
+                    action,
+                    duration_seconds,
+                    json.dumps(payload, ensure_ascii=False),
+                    "admin_api",
+                    to_iso(utc_now()),
+                ),
+            )
+            return int(cur.lastrowid)

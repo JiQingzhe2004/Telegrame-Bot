@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from bot.runtime_manager import RuntimeManager
 from bot.storage.repo import BotRepository
 from bot.system_config import ConfigService
+from bot.telegram.admin_service import TelegramAdminService
 
 
 class ApiEnvelope(BaseModel):
@@ -196,6 +197,122 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
     @app.get("/api/v1/chats/{chat_id}/appeals", dependencies=[Depends(require_active), Depends(auth_admin)])
     async def list_appeals(chat_id: int) -> ApiEnvelope:
         return ApiEnvelope(ok=True, data=services.repo.list_appeals(chat_id))
+
+    def _admin_service() -> TelegramAdminService:
+        tg_app = services.runtime_manager.get_bot_application()
+        if not tg_app:
+            raise HTTPException(status_code=409, detail="runtime_not_active")
+        return TelegramAdminService(tg_app.bot, services.repo)
+
+    @app.get("/api/v1/chats/{chat_id}/admin/overview", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def admin_overview(chat_id: int) -> ApiEnvelope:
+        svc = _admin_service()
+        data = await svc.overview(chat_id)
+        return ApiEnvelope(ok=True, data=data)
+
+    @app.get("/api/v1/chats/{chat_id}/admin/members/{user_id}", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def admin_member(chat_id: int, user_id: int) -> ApiEnvelope:
+        svc = _admin_service()
+        result = await svc.get_member(chat_id, user_id)
+        return ApiEnvelope(ok=True, data=result.__dict__)
+
+    @app.put("/api/v1/chats/{chat_id}/admin/profile", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def admin_update_profile(chat_id: int, body: dict[str, Any]) -> ApiEnvelope:
+        svc = _admin_service()
+        result = await svc.update_profile(chat_id, body.get("title"), body.get("description"))
+        return ApiEnvelope(ok=True, data=result.__dict__)
+
+    @app.post("/api/v1/chats/{chat_id}/admin/messages/{message_id}/delete", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def admin_delete_message(chat_id: int, message_id: int) -> ApiEnvelope:
+        svc = _admin_service()
+        result = await svc.delete_message(chat_id, message_id)
+        return ApiEnvelope(ok=True, data=result.__dict__)
+
+    @app.post("/api/v1/chats/{chat_id}/admin/messages/{message_id}/pin", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def admin_pin_message(chat_id: int, message_id: int) -> ApiEnvelope:
+        svc = _admin_service()
+        result = await svc.pin_message(chat_id, message_id)
+        return ApiEnvelope(ok=True, data=result.__dict__)
+
+    @app.post("/api/v1/chats/{chat_id}/admin/messages/unpin", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def admin_unpin_message(chat_id: int) -> ApiEnvelope:
+        svc = _admin_service()
+        result = await svc.unpin_message(chat_id)
+        return ApiEnvelope(ok=True, data=result.__dict__)
+
+    @app.post("/api/v1/chats/{chat_id}/admin/members/{user_id}/mute", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def admin_mute_member(chat_id: int, user_id: int, body: dict[str, Any]) -> ApiEnvelope:
+        svc = _admin_service()
+        result = await svc.mute_member(chat_id, user_id, int(body.get("duration_seconds", 600)))
+        return ApiEnvelope(ok=True, data=result.__dict__)
+
+    @app.post("/api/v1/chats/{chat_id}/admin/members/{user_id}/unmute", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def admin_unmute_member(chat_id: int, user_id: int) -> ApiEnvelope:
+        svc = _admin_service()
+        result = await svc.unmute_member(chat_id, user_id)
+        return ApiEnvelope(ok=True, data=result.__dict__)
+
+    @app.post("/api/v1/chats/{chat_id}/admin/members/{user_id}/ban", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def admin_ban_member(chat_id: int, user_id: int) -> ApiEnvelope:
+        svc = _admin_service()
+        result = await svc.ban_member(chat_id, user_id)
+        return ApiEnvelope(ok=True, data=result.__dict__)
+
+    @app.post("/api/v1/chats/{chat_id}/admin/members/{user_id}/unban", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def admin_unban_member(chat_id: int, user_id: int) -> ApiEnvelope:
+        svc = _admin_service()
+        result = await svc.unban_member(chat_id, user_id)
+        return ApiEnvelope(ok=True, data=result.__dict__)
+
+    @app.post("/api/v1/chats/{chat_id}/admin/invite-links/create", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def admin_create_invite(chat_id: int, body: dict[str, Any]) -> ApiEnvelope:
+        svc = _admin_service()
+        result = await svc.create_invite_link(chat_id, body.get("name"))
+        return ApiEnvelope(ok=True, data=result.__dict__)
+
+    @app.post("/api/v1/chats/{chat_id}/admin/invite-links/revoke", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def admin_revoke_invite(chat_id: int, body: dict[str, Any]) -> ApiEnvelope:
+        svc = _admin_service()
+        link = str(body.get("invite_link", "")).strip()
+        if not link:
+            raise HTTPException(status_code=400, detail="missing_invite_link")
+        result = await svc.revoke_invite_link(chat_id, link)
+        return ApiEnvelope(ok=True, data=result.__dict__)
+
+    @app.post("/api/v1/chats/{chat_id}/admin/admins/{user_id}/promote", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def admin_promote(chat_id: int, user_id: int, body: dict[str, Any]) -> ApiEnvelope:
+        svc = _admin_service()
+        permissions = {
+            "can_manage_chat": bool(body.get("can_manage_chat", True)),
+            "can_change_info": bool(body.get("can_change_info", False)),
+            "can_delete_messages": bool(body.get("can_delete_messages", True)),
+            "can_invite_users": bool(body.get("can_invite_users", True)),
+            "can_restrict_members": bool(body.get("can_restrict_members", True)),
+            "can_pin_messages": bool(body.get("can_pin_messages", True)),
+            "can_promote_members": bool(body.get("can_promote_members", False)),
+            "can_manage_video_chats": bool(body.get("can_manage_video_chats", True)),
+            "can_post_stories": bool(body.get("can_post_stories", False)),
+            "can_edit_stories": bool(body.get("can_edit_stories", False)),
+            "can_delete_stories": bool(body.get("can_delete_stories", False)),
+            "is_anonymous": bool(body.get("is_anonymous", False)),
+        }
+        result = await svc.promote_admin(chat_id, user_id, permissions)
+        return ApiEnvelope(ok=True, data=result.__dict__)
+
+    @app.post("/api/v1/chats/{chat_id}/admin/admins/{user_id}/demote", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def admin_demote(chat_id: int, user_id: int) -> ApiEnvelope:
+        svc = _admin_service()
+        result = await svc.demote_admin(chat_id, user_id)
+        return ApiEnvelope(ok=True, data=result.__dict__)
+
+    @app.post("/api/v1/chats/{chat_id}/admin/admins/{user_id}/title", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def admin_title(chat_id: int, user_id: int, body: dict[str, Any]) -> ApiEnvelope:
+        title = str(body.get("title", "")).strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="missing_title")
+        svc = _admin_service()
+        result = await svc.set_admin_title(chat_id, user_id, title)
+        return ApiEnvelope(ok=True, data=result.__dict__)
 
     @app.post("/api/v1/enforcements/{enforcement_id}/rollback", dependencies=[Depends(require_active), Depends(auth_admin)])
     async def rollback(enforcement_id: int) -> ApiEnvelope:
