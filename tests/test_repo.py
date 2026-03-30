@@ -1,0 +1,51 @@
+from pathlib import Path
+
+from bot.domain.models import ChatRef, MessageRef, ModerationDecision, UserRef
+from bot.storage.db import Database
+from bot.storage.migrations import migrate
+from bot.storage.repo import BotRepository
+from bot.utils.time import utc_now
+
+
+def make_repo(path: Path) -> BotRepository:
+    db = Database(path)
+    migrate(db)
+    return BotRepository(
+        db,
+        defaults={
+            "mode": "balanced",
+            "ai_enabled": True,
+            "ai_threshold": 0.75,
+            "action_policy": "progressive",
+            "rate_limit_policy": "default",
+            "language": "zh",
+            "level3_mute_seconds": 604800,
+        },
+    )
+
+
+def test_repo_migration_and_basic_ops(tmp_path):
+    repo = make_repo(tmp_path / "bot.db")
+    repo.upsert_chat_user(
+        ChatRef(chat_id=1, type="supergroup", title="t"),
+        UserRef(user_id=2, username="u", is_bot=False),
+    )
+    settings = repo.get_settings(1)
+    assert settings.chat_id == 1
+    repo.add_list_item("blacklists", 1, "word", "spam")
+    assert "spam" in repo.get_blacklist_words(1)
+
+    msg = MessageRef(chat_id=1, message_id=3, user_id=2, date=utc_now(), text="spam", meta={})
+    decision = ModerationDecision(
+        final_level=2,
+        final_action="delete",
+        reason_codes=["rule.banword"],
+        rule_results=[],
+        ai_used=False,
+        ai_decision=None,
+        confidence=1.0,
+    )
+    repo.save_violation_message(msg, "spam")
+    repo.save_decision(msg, decision)
+    audits = repo.list_audits(1)
+    assert len(audits) == 1

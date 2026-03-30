@@ -1,0 +1,28 @@
+[project]
+name = "telegram-moderator-bot"
+version = "0.1.0"
+description = "Telegram group moderation bot service with rules + AI + SQLite audit."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.116.0",
+  "openai>=2.0.0",
+  "pydantic>=2.11.0",
+  "python-dotenv>=1.0.1",
+  "python-telegram-bot>=22.0",
+  "uvicorn>=0.35.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.28.0",
+  "pytest>=8.3.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
