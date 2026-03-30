@@ -68,6 +68,14 @@ export type ListItem = {
   created_at: string;
 };
 
+export type KnownChat = {
+  chat_id: number;
+  title: string | null;
+  type: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
 export class ApiClient {
   constructor(private readonly baseUrl: string) {}
 
@@ -138,6 +146,12 @@ export class ApiClient {
 
   getStatus(adminToken: string) {
     return this.request<Record<string, unknown>>("/api/v1/status", {
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  listChats(adminToken: string, limit = 200) {
+    return this.request<KnownChat[]>(`/api/v1/chats?limit=${limit}`, {
       headers: this.adminHeaders(adminToken),
     });
   }

@@ -144,6 +144,10 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
     async def status() -> ApiEnvelope:
         return ApiEnvelope(ok=True, data=services.repo.status_summary())
 
+    @app.get("/api/v1/chats", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def list_chats(limit: int = 200) -> ApiEnvelope:
+        return ApiEnvelope(ok=True, data=services.repo.list_chats(limit))
+
     @app.get("/api/v1/chats/{chat_id}/settings", dependencies=[Depends(require_active), Depends(auth_admin)])
     async def get_settings(chat_id: int) -> ApiEnvelope:
         return ApiEnvelope(ok=True, data=services.repo.get_settings(chat_id).__dict__)

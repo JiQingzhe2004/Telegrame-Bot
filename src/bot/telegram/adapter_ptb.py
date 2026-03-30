@@ -4,6 +4,7 @@ import logging
 from datetime import timezone
 
 from telegram import Chat, Update
+from telegram.constants import MessageEntityType
 from telegram.ext import (
     Application,
     ApplicationBuilder,
@@ -27,7 +28,7 @@ from bot.telegram.commands import (
     threshold_cmd,
     whitelist_cmd,
 )
-from bot.telegram.permissions import get_permission_snapshot
+from bot.telegram.permissions import get_permission_snapshot, is_admin
 from bot.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
@@ -57,6 +58,23 @@ async def on_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         last_name=update.effective_user.last_name,
     )
     repo.upsert_chat_user(chat_ref, user_ref)
+
+    # 管理员 @机器人 时，自动回显 Chat ID，方便前端自动选择。
+    if text and msg.entities:
+        me = context.application.bot_data.get("bot_me")
+        if me is None:
+            me = await context.bot.get_me()
+            context.application.bot_data["bot_me"] = me
+        mention_name = (me.username or "").lower()
+        mentioned = False
+        for entity in msg.entities:
+            if entity.type == MessageEntityType.MENTION:
+                token = text[entity.offset : entity.offset + entity.length].strip().lstrip("@").lower()
+                if token == mention_name:
+                    mentioned = True
+                    break
+        if mentioned and await is_admin(context.bot, chat.id, user_ref.user_id):
+            await msg.reply_text(f"当前群 Chat ID: {chat.id}")
     settings = repo.get_settings(chat.id)
     whitelist_hit = repo.is_whitelisted(chat.id, user_ref.user_id, user_ref.username)
     strike_score = repo.get_strike_score(chat.id, user_ref.user_id)

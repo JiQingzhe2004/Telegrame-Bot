@@ -335,3 +335,16 @@ class BotRepository:
             "ai_used_total": int(ai_used),
             "latest_decision_at": latest["created_at"] if latest else None,
         }
+
+    def list_chats(self, limit: int = 200) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT chat_id, title, type, created_at, updated_at
+                FROM chats
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]

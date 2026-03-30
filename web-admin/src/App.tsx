@@ -1,6 +1,6 @@
 import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, RefreshCw, Shield, Sparkles, Undo2 } from "lucide-react";
-import { ApiClient, type AppealRecord, type AuditRecord, type ChatSettings, type EnforcementRecord, type ListItem } from "@/lib/api";
+import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, Shield, Sparkles, Undo2 } from "lucide-react";
+import { ApiClient, type AppealRecord, type AuditRecord, type ChatSettings, type EnforcementRecord, type KnownChat, type ListItem } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -97,6 +97,7 @@ function SetupWizard({
   const [code, setCode] = useState("");
   const [setupToken, setSetupToken] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [activating, setActivating] = useState(false);
 
   const [form, setForm] = useState({
     bot_token: "",
@@ -141,6 +142,7 @@ function SetupWizard({
       return;
     }
     setSubmitting(true);
+    setActivating(true);
     try {
       await client.setupConfig(setupToken, form);
       await client.setupActivate(setupToken);
@@ -150,6 +152,7 @@ function SetupWizard({
     } catch (err) {
       setMessage(`配置失败：${String(err)}`);
     } finally {
+      setActivating(false);
       setSubmitting(false);
     }
   };
@@ -232,10 +235,18 @@ function SetupWizard({
             <Label>高风险模型</Label>
             <Input value={form.ai_high_risk_model} onChange={(e) => setForm({ ...form, ai_high_risk_model: e.target.value })} />
           </div>
-          <div className="md:col-span-2">
+          <div className="md:col-span-2 flex flex-col gap-2">
             <Button className="w-full" onClick={() => void saveAndActivate()} disabled={submitting}>
-              保存并激活
+              {activating ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  正在保存并激活...
+                </>
+              ) : (
+                "保存并激活"
+              )}
             </Button>
+            {activating && <p className="text-xs text-muted-foreground">正在连接 Telegram 并应用配置，通常需要 1-5 秒。</p>}
           </div>
         </CardContent>
       </Card>
@@ -266,6 +277,7 @@ function AdminConsole({
 
   const [status, setStatus] = useState<Record<string, unknown> | null>(null);
   const [settings, setSettings] = useState<ChatSettings | null>(null);
+  const [knownChats, setKnownChats] = useState<KnownChat[]>([]);
   const [whitelist, setWhitelist] = useState<ListItem[]>([]);
   const [blacklist, setBlacklist] = useState<ListItem[]>([]);
   const [audits, setAudits] = useState<AuditRecord[]>([]);
@@ -291,9 +303,10 @@ function AdminConsole({
     setLoading(true);
     setMessage("");
     try {
-      const [runtime, s, cfg, wl, bl, ad, en, ap] = await Promise.all([
+      const [runtime, s, chats, cfg, wl, bl, ad, en, ap] = await Promise.all([
         client.getRuntimeState(),
         client.getStatus(adminToken),
+        client.listChats(adminToken),
         client.getSettings(deferredChatId, adminToken),
         client.listWhitelist(deferredChatId, adminToken),
         client.listBlacklist(deferredChatId, adminToken),
@@ -307,6 +320,7 @@ function AdminConsole({
       }
       startTransition(() => {
         setStatus(s);
+        setKnownChats(chats);
         setSettings(cfg);
         setWhitelist(wl);
         setBlacklist(bl);
@@ -319,6 +333,27 @@ function AdminConsole({
       setMessage(`加载失败：${String(err)}`);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadKnownChats = async () => {
+    if (!baseUrl || !adminToken) {
+      setMessage("请先填写 API 地址和管理令牌。");
+      return;
+    }
+    try {
+      const chats = await client.listChats(adminToken);
+      setKnownChats(chats);
+      if (!chatId && chats.length > 0) {
+        setChatId(String(chats[0].chat_id));
+      }
+      if (!chats.length) {
+        setMessage("暂无群记录。请在群里 @机器人 发一条消息后再点自动获取。");
+      } else {
+        setMessage(`已获取 ${chats.length} 个群。`);
+      }
+    } catch (err) {
+      setMessage(`获取群列表失败：${String(err)}`);
     }
   };
 
@@ -414,6 +449,28 @@ function AdminConsole({
               <Label>Chat ID</Label>
               <Input value={chatId} onChange={(e) => setChatId(e.target.value)} />
             </div>
+            <div className="md:col-span-3 flex items-end gap-2">
+              <div className="flex-1 flex flex-col gap-2">
+                <Label>自动获取到的群</Label>
+                <Select value={chatId} onValueChange={(v) => setChatId(v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="选择群后自动填充 Chat ID" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {knownChats.map((c) => (
+                        <SelectItem key={c.chat_id} value={String(c.chat_id)}>
+                          {(c.title && c.title.trim()) || `chat:${c.chat_id}`} ({c.chat_id})
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button variant="outline" onClick={() => void loadKnownChats()}>
+                自动获取
+              </Button>
+            </div>
           </CardContent>
         </Card>
         <Card className="glass-panel">
@@ -469,10 +526,12 @@ function AdminConsole({
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex items-center justify-between rounded-md border bg-white px-4 py-3">
-                <div className="flex flex-col">
-                  <Label htmlFor="ai-enabled">AI 开关</Label>
-                  <span className="text-xs text-muted-foreground">启用后触发语义判定</span>
+              <div className="flex h-10 items-center justify-between rounded-md border bg-white px-3">
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="ai-enabled" className="mb-0">
+                    AI 开关
+                  </Label>
+                  <span className="text-xs text-muted-foreground">语义判定</span>
                 </div>
                 <Switch id="ai-enabled" checked={settings?.ai_enabled ?? false} onCheckedChange={(v) => void updateSetting({ ai_enabled: v })} />
               </div>
