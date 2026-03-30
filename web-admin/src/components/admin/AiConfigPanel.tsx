@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Alert, Button, Card, Col, Form, Input, InputNumber, Row, Select, Space, Tag } from "antd";
+import { Alert, Button, Card, Col, Form, Input, InputNumber, Row, Select, Space, Switch, Tag } from "antd";
 import type { RuntimeConfigPublic } from "@/lib/api";
 
 type Props = {
@@ -12,6 +12,11 @@ type Props = {
     ai_low_risk_model: string;
     ai_high_risk_model: string;
     ai_timeout_seconds: number;
+    join_verification_enabled: boolean;
+    join_verification_timeout_seconds: number;
+    join_welcome_enabled: boolean;
+    join_welcome_use_ai: boolean;
+    join_welcome_template: string;
     run_mode: "polling" | "webhook";
     webhook_public_url?: string;
     webhook_path?: string;
@@ -29,6 +34,11 @@ export function AiConfigPanel({ config, loading, saving, onSave }: Props) {
       ai_low_risk_model: config.ai_low_risk_model,
       ai_high_risk_model: config.ai_high_risk_model,
       ai_timeout_seconds: config.ai_timeout_seconds,
+      join_verification_enabled: config.join_verification_enabled,
+      join_verification_timeout_seconds: config.join_verification_timeout_seconds,
+      join_welcome_enabled: config.join_welcome_enabled,
+      join_welcome_use_ai: config.join_welcome_use_ai,
+      join_welcome_template: config.join_welcome_template,
       run_mode: config.run_mode,
       webhook_public_url: config.webhook_public_url || "",
       webhook_path: config.webhook_path || "/telegram/webhook",
@@ -61,6 +71,11 @@ export function AiConfigPanel({ config, loading, saving, onSave }: Props) {
               ai_low_risk_model: values.ai_low_risk_model,
               ai_high_risk_model: values.ai_high_risk_model,
               ai_timeout_seconds: Number(values.ai_timeout_seconds),
+              join_verification_enabled: Boolean(values.join_verification_enabled),
+              join_verification_timeout_seconds: Number(values.join_verification_timeout_seconds),
+              join_welcome_enabled: Boolean(values.join_welcome_enabled),
+              join_welcome_use_ai: Boolean(values.join_welcome_use_ai),
+              join_welcome_template: values.join_welcome_template?.trim() || "欢迎 {user} 加入 {chat}，请先阅读群规并友善交流。",
               run_mode: values.run_mode,
               webhook_public_url: values.webhook_public_url?.trim() || "",
               webhook_path: values.webhook_path?.trim() || "/telegram/webhook",
@@ -91,6 +106,35 @@ export function AiConfigPanel({ config, loading, saving, onSave }: Props) {
             <Col xs={24} md={12}>
               <Form.Item label="AI 超时（秒）" name="ai_timeout_seconds" rules={[{ required: true, message: "必填" }]}>
                 <InputNumber min={1} max={120} style={{ width: "100%" }} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item label="入群验证开关" name="join_verification_enabled" valuePropName="checked">
+                <Switch />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item label="入群验证超时（秒）" name="join_verification_timeout_seconds" rules={[{ required: true, message: "必填" }]}>
+                <InputNumber min={30} max={3600} style={{ width: "100%" }} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item label="欢迎语开关" name="join_welcome_enabled" valuePropName="checked">
+                <Switch />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item label="欢迎语使用 AI" name="join_welcome_use_ai" valuePropName="checked">
+                <Switch />
+              </Form.Item>
+            </Col>
+            <Col xs={24}>
+              <Form.Item
+                label="欢迎语模板（支持 {user} / {chat}）"
+                name="join_welcome_template"
+                rules={[{ required: true, message: "必填" }]}
+              >
+                <Input.TextArea rows={3} />
               </Form.Item>
             </Col>
             <Col xs={24} md={12}>

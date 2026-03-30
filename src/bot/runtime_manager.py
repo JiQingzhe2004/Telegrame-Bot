@@ -93,6 +93,8 @@ class RuntimeManager:
             repo=self.repo,
             moderation_service=moderation_service,
             enforcer=enforcer,
+            ai_moderator=ai,
+            runtime_config=conf,
         )
 
         await tg_app.initialize()

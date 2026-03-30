@@ -230,6 +230,11 @@ export function AdminConsolePage({ baseUrl, onBaseUrlChange, runtimeState }: Pro
     ai_low_risk_model: string;
     ai_high_risk_model: string;
     ai_timeout_seconds: number;
+    join_verification_enabled: boolean;
+    join_verification_timeout_seconds: number;
+    join_welcome_enabled: boolean;
+    join_welcome_use_ai: boolean;
+    join_welcome_template: string;
     run_mode: "polling" | "webhook";
     webhook_public_url?: string;
     webhook_path?: string;

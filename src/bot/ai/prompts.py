@@ -28,3 +28,20 @@ def build_user_prompt(message: MessageRef, context: ModerationContext, redacted_
         f"message={redacted_text}\n"
         f"meta={message.meta}\n"
     )
+
+
+def build_welcome_system_prompt() -> str:
+    return (
+        "You are a Telegram community assistant. "
+        "Write short, warm, safe welcome messages without markdown or emoji spam."
+    )
+
+
+def build_welcome_user_prompt(chat_title: str, user_display_name: str, language: str, template: str) -> str:
+    return (
+        f"language={language}\n"
+        f"chat_title={chat_title}\n"
+        f"user_display_name={user_display_name}\n"
+        f"template_hint={template}\n"
+        "requirements=<=60 Chinese chars, include user_display_name once, remind reading group rules politely\n"
+    )

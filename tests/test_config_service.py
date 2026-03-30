@@ -60,3 +60,29 @@ def test_admin_token_is_hashed_and_verifiable(tmp_path):
     assert cfg.admin_api_token_hash
     assert svc.verify_admin_token("my-admin-token") is True
     assert svc.verify_admin_token("wrong-token") is False
+
+
+def test_join_features_defaults_are_available(tmp_path):
+    svc = make_service(tmp_path)
+    cfg = svc.get_runtime_config()
+    assert cfg.join_verification_enabled is True
+    assert cfg.join_verification_timeout_seconds == 180
+    assert cfg.join_welcome_enabled is True
+    assert cfg.join_welcome_use_ai is True
+    assert "{user}" in cfg.join_welcome_template
+
+
+def test_join_verification_timeout_must_be_positive(tmp_path):
+    svc = make_service(tmp_path)
+    try:
+        svc.save_runtime_config(
+            {
+                "bot_token": "bot-token",
+                "admin_api_token": "admin-token",
+                "join_verification_timeout_seconds": 0,
+            }
+        )
+    except ValueError as exc:
+        assert "join_verification_timeout_seconds must be positive" in str(exc)
+    else:
+        raise AssertionError("expected validation error")

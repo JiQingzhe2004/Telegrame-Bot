@@ -31,6 +31,11 @@ class RuntimeConfig:
     ai_low_risk_model: str = "gpt-4.1-mini"
     ai_high_risk_model: str = "gpt-5.2"
     ai_timeout_seconds: int = 12
+    join_verification_enabled: bool = True
+    join_verification_timeout_seconds: int = 180
+    join_welcome_enabled: bool = True
+    join_welcome_use_ai: bool = True
+    join_welcome_template: str = "欢迎 {user} 加入 {chat}，请先阅读群规并友善交流。"
 
     @staticmethod
     def from_dict(data: dict[str, Any]) -> "RuntimeConfig":
@@ -55,6 +60,12 @@ class RuntimeConfig:
             ai_low_risk_model=str(merged["ai_low_risk_model"]).strip(),
             ai_high_risk_model=str(merged["ai_high_risk_model"]).strip(),
             ai_timeout_seconds=int(merged["ai_timeout_seconds"]),
+            join_verification_enabled=bool(merged["join_verification_enabled"]),
+            join_verification_timeout_seconds=int(merged["join_verification_timeout_seconds"]),
+            join_welcome_enabled=bool(merged["join_welcome_enabled"]),
+            join_welcome_use_ai=bool(merged["join_welcome_use_ai"]),
+            join_welcome_template=str(merged["join_welcome_template"]).strip()
+            or "欢迎 {user} 加入 {chat}，请先阅读群规并友善交流。",
         )
 
     def redacted(self) -> dict[str, Any]:
@@ -121,6 +132,10 @@ class ConfigService:
             errors.append("default_level3_mute_seconds must be positive")
         if conf.ai_timeout_seconds <= 0:
             errors.append("ai_timeout_seconds must be positive")
+        if conf.join_verification_timeout_seconds <= 0:
+            errors.append("join_verification_timeout_seconds must be positive")
+        if len(conf.join_welcome_template) > 300:
+            errors.append("join_welcome_template is too long")
         if conf.run_mode == "webhook" and not conf.webhook_public_url:
             errors.append("webhook_public_url is required in webhook mode")
         return errors

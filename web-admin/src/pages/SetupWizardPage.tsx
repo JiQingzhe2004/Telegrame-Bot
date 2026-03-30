@@ -7,10 +7,12 @@ import {
   Col,
   Form,
   Input,
+  InputNumber,
   Row,
   Select,
   Space,
   Steps,
+  Switch,
   Typography,
 } from "antd";
 import { ApiClient } from "@/lib/api";
@@ -31,6 +33,11 @@ type SetupFormValues = {
   webhook_public_url?: string;
   ai_low_risk_model: string;
   ai_high_risk_model: string;
+  join_verification_enabled: boolean;
+  join_verification_timeout_seconds: number;
+  join_welcome_enabled: boolean;
+  join_welcome_use_ai: boolean;
+  join_welcome_template: string;
 };
 
 export function SetupWizardPage({ baseUrl, onBaseUrlChange, onActivated }: Props) {
@@ -143,6 +150,11 @@ export function SetupWizardPage({ baseUrl, onBaseUrlChange, onActivated }: Props
                     run_mode: "polling",
                     ai_low_risk_model: "gpt-4.1-mini",
                     ai_high_risk_model: "gpt-5.2",
+                    join_verification_enabled: true,
+                    join_verification_timeout_seconds: 180,
+                    join_welcome_enabled: true,
+                    join_welcome_use_ai: true,
+                    join_welcome_template: "欢迎 {user} 加入 {chat}，请先阅读群规并友善交流。",
                   }}
                 >
                   <Row gutter={12}>
@@ -202,6 +214,31 @@ export function SetupWizardPage({ baseUrl, onBaseUrlChange, onActivated }: Props
                     <Col xs={24} md={12}>
                       <Form.Item label="高风险模型" name="ai_high_risk_model" rules={[{ required: true, message: "必填" }]}>
                         <Input />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item label="入群验证开关" name="join_verification_enabled" valuePropName="checked">
+                        <Switch />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item label="入群验证超时（秒）" name="join_verification_timeout_seconds" rules={[{ required: true, message: "必填" }]}>
+                        <InputNumber min={30} max={3600} style={{ width: "100%" }} />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item label="欢迎语开关" name="join_welcome_enabled" valuePropName="checked">
+                        <Switch />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item label="欢迎语使用 AI" name="join_welcome_use_ai" valuePropName="checked">
+                        <Switch />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24}>
+                      <Form.Item label="欢迎语模板（支持 {user} / {chat}）" name="join_welcome_template" rules={[{ required: true, message: "必填" }]}>
+                        <Input.TextArea rows={3} />
                       </Form.Item>
                     </Col>
                   </Row>

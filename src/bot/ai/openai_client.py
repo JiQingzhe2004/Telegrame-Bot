@@ -7,7 +7,12 @@ from typing import Any
 
 from openai import AsyncOpenAI
 
-from bot.ai.prompts import build_system_prompt, build_user_prompt
+from bot.ai.prompts import (
+    build_system_prompt,
+    build_user_prompt,
+    build_welcome_system_prompt,
+    build_welcome_user_prompt,
+)
 from bot.ai.redact import redact_pii
 from bot.domain.models import AiDecision, MessageRef, ModerationContext
 
@@ -115,3 +120,30 @@ class OpenAiModerator:
         decision = _coerce(data)
         logger.info("ai_classified model=%s level=%s category=%s", model, decision.level, decision.category)
         return decision
+
+    async def generate_welcome(self, *, chat_title: str, user_display_name: str, language: str, template: str) -> str:
+        if not self.client:
+            raise RuntimeError("OPENAI_API_KEY is not configured")
+        model = self.conf.low_risk_model or self.conf.high_risk_model
+        response = await self.client.responses.create(
+            model=model,
+            input=[
+                {"role": "system", "content": build_welcome_system_prompt()},
+                {
+                    "role": "user",
+                    "content": build_welcome_user_prompt(
+                        chat_title=chat_title,
+                        user_display_name=user_display_name,
+                        language=language,
+                        template=template,
+                    ),
+                },
+            ],
+            timeout=self.conf.timeout_seconds,
+        )
+        text = (response.output_text or "").strip()
+        if not text:
+            raise ValueError("empty welcome response")
+        if len(text) > 180:
+            return text[:180].strip()
+        return text
