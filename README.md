@@ -65,3 +65,8 @@ npm run dev
 
 业务配置不再使用 `.env`。  
 `.env` 仅保留基础参数（端口、日志、数据库路径等），见 `.env.example`。
+
+## AI 协作约定
+
+- 仓库已定义 AI 规则文件 [AGENTS.md](/D:/JiQingzhe/GitHub项目/管理机器人/AGENTS.md)。
+- 所有 Git 提交信息必须使用中文。
