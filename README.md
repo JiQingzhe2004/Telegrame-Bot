@@ -67,6 +67,17 @@ npm install
 npm run dev
 ```
 
+## 发布流程（Tag 自动发布）
+
+仓库已配置自动发布工作流：推送 `v*` tag 后，会自动执行测试、构建、生成 Release 附件，并推送 GHCR 镜像。
+
+```powershell
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+详情见：[发布与打包方案](docs/发布与打包方案.md)
+
 ## 主要接口
 
 - 运行状态：`GET /api/v1/runtime/state`
