@@ -6,7 +6,7 @@ from pathlib import Path
 repo_root = Path.cwd()
 
 a = Analysis(
-    ['packaging/launcher.py'],
+    ['launcher.py'],
     pathex=[str(repo_root / 'src')],
     binaries=[],
     datas=[],

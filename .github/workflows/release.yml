@@ -93,7 +93,7 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf release-src
-          mkdir -p release-src
+          mkdir -p release-src/web-admin
           cp -R src release-src/src
           cp -R web-admin/dist release-src/web-admin/dist
           cp -R docs release-src/docs
