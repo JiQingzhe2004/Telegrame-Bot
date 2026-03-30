@@ -100,7 +100,7 @@ jobs:
           cp README.md release-src/README.md
           cp .env.example release-src/.env.example
           cp pyproject.toml release-src/pyproject.toml
-          cp DEVELOPMENT.md release-src/DEVELOPMENT.md
+          if [ -f DEVELOPMENT.md ]; then cp DEVELOPMENT.md release-src/DEVELOPMENT.md; fi
           cp -R packaging release-src/packaging
           (cd release-src && zip -r ../telegram-moderator-bot-source-bundle.zip .)
 
