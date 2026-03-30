@@ -20,6 +20,7 @@ ALLOWED_ACTION = {"none", "warn", "delete", "mute", "restrict", "kick", "ban"}
 @dataclass(frozen=True)
 class AiRuntimeConfig:
     api_key: str
+    base_url: str
     low_risk_model: str
     high_risk_model: str
     timeout_seconds: int
@@ -55,7 +56,12 @@ def _coerce(data: dict[str, Any]) -> AiDecision:
 class OpenAiModerator:
     def __init__(self, conf: AiRuntimeConfig) -> None:
         self.conf = conf
-        self.client = AsyncOpenAI(api_key=conf.api_key) if conf.api_key else None
+        if not conf.api_key:
+            self.client = None
+        elif conf.base_url:
+            self.client = AsyncOpenAI(api_key=conf.api_key, base_url=conf.base_url)
+        else:
+            self.client = AsyncOpenAI(api_key=conf.api_key)
 
     def choose_model(self, context: ModerationContext) -> str:
         if context.strike_score >= 2 or context.settings.mode == "strict":

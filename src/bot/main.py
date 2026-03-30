@@ -86,6 +86,7 @@ async def async_main() -> None:
     ai = OpenAiModerator(
         AiRuntimeConfig(
             api_key=conf.openai_api_key,
+            base_url=conf.openai_base_url,
             low_risk_model=conf.ai_low_risk_model,
             high_risk_model=conf.ai_high_risk_model,
             timeout_seconds=conf.ai_timeout_seconds,

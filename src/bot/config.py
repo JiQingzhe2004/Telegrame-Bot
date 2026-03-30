@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 class AppConfig:
     bot_token: str
     openai_api_key: str
+    openai_base_url: str
     run_mode: str
     log_level: str
     db_path: Path
@@ -49,6 +50,7 @@ def load_config() -> AppConfig:
     return AppConfig(
         bot_token=bot_token,
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),
+        openai_base_url=os.getenv("OPENAI_BASE_URL", "").strip(),
         run_mode=os.getenv("RUN_MODE", "polling").strip().lower(),
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
         db_path=Path(os.getenv("DB_PATH", "data/bot.db")),
