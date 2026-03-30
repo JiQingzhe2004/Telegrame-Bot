@@ -1,6 +1,7 @@
-import { useState } from "react";
-import { Button, Card, Col, Input, Row, Space, Table, Tag } from "antd";
+import { useMemo, useState } from "react";
+import { AutoComplete, Button, Card, Col, Row, Space, Table, Tag } from "antd";
 import type { AdminActions, AdminDataBundle } from "@/components/admin/types";
+import { UserLazySelect } from "@/components/admin/UserLazySelect";
 
 type Props = {
   data: AdminDataBundle;
@@ -10,13 +11,22 @@ type Props = {
 export function ListManagePanel({ data, actions }: Props) {
   const [white, setWhite] = useState("");
   const [black, setBlack] = useState("");
+  const blackOptions = useMemo(
+    () => data.blacklist.map((item) => ({ value: item.value, label: item.value })),
+    [data.blacklist],
+  );
 
   return (
     <Row gutter={[16, 16]}>
       <Col xs={24} xl={12}>
         <Card title="白名单">
           <Space.Compact style={{ width: "100%", marginBottom: 12 }}>
-            <Input value={white} onChange={(e) => setWhite(e.target.value)} placeholder="@username 或 user_id" />
+            <UserLazySelect
+              members={data.members}
+              value={white}
+              onChange={setWhite}
+              placeholder="@username 或 user_id（支持搜索）"
+            />
             <Button type="primary" onClick={() => void actions.addWhitelist(white)}>
               添加
             </Button>
@@ -44,7 +54,14 @@ export function ListManagePanel({ data, actions }: Props) {
       <Col xs={24} xl={12}>
         <Card title="黑名单词">
           <Space.Compact style={{ width: "100%", marginBottom: 12 }}>
-            <Input value={black} onChange={(e) => setBlack(e.target.value)} placeholder="违规词" />
+            <AutoComplete
+              options={blackOptions}
+              value={black}
+              style={{ width: "100%" }}
+              onChange={(value) => setBlack(value)}
+              placeholder="违规词（支持搜索）"
+              filterOption={(inputValue, option) => (option?.label ?? "").toLowerCase().includes(inputValue.toLowerCase())}
+            />
             <Button danger type="primary" onClick={() => void actions.addBlacklist(black)}>
               添加
             </Button>

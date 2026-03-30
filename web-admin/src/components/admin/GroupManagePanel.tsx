@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
-import { Button, Card, Col, Form, Input, Modal, Row, Space, Switch, Tabs, Tag, Typography } from "antd";
+import { Button, Card, Col, Divider, Form, Input, Modal, Row, Space, Switch, Tabs, Tag, Typography } from "antd";
 import { ProTable, type ProColumns } from "@ant-design/pro-components";
 import type { AdminActionResult, ChatMemberBrief } from "@/lib/api";
 import type { AdminActions, AdminDataBundle } from "@/components/admin/types";
 import { formatTime, translatePermission } from "@/lib/helpers";
+import { UserLazySelect } from "@/components/admin/UserLazySelect";
 
 type Props = {
   chatId: string;
@@ -110,11 +111,23 @@ export function GroupManagePanel({
 
   return (
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
-      <Card title="操作目标" extra={<Tag color="blue">chat: {chatId}</Tag>}>
+      <Card
+        title="操作目标"
+        extra={
+          <Space>
+            <Tag color="blue">chat: {chatId}</Tag>
+            <Tag color={targetUserId ? "green" : "default"}>{targetUserId ? `目标: ${targetUserId}` : "未选目标"}</Tag>
+          </Space>
+        }
+      >
         <Row gutter={12}>
           <Col xs={24} md={8}>
             <Typography.Text type="secondary">目标用户 ID</Typography.Text>
-            <Input value={targetUserId} onChange={(e) => setTargetUserId(e.target.value)} placeholder="从成员列表一键选择" />
+            <UserLazySelect
+              members={data.members}
+              value={targetUserId}
+              onChange={setTargetUserId}
+            />
           </Col>
           <Col xs={24} md={8}>
             <Typography.Text type="secondary">禁言时长（秒）</Typography.Text>
@@ -126,6 +139,7 @@ export function GroupManagePanel({
               <Button onClick={() => void actions.runAction(() => apiActions.unmute(targetUserId), "解除禁言成功")}>解禁言</Button>
               <Button
                 danger
+                disabled={!targetUserId}
                 onClick={() =>
                   withDangerConfirm(`确认封禁 chat=${chatId}, user=${targetUserId} ?`, () =>
                     actions.runAction(() => apiActions.ban(targetUserId), "封禁成功"),
@@ -134,10 +148,13 @@ export function GroupManagePanel({
               >
                 封禁
               </Button>
-              <Button onClick={() => void actions.runAction(() => apiActions.unban(targetUserId), "解封成功")}>解封</Button>
+              <Button disabled={!targetUserId} onClick={() => void actions.runAction(() => apiActions.unban(targetUserId), "解封成功")}>
+                解封
+              </Button>
             </Space>
           </Col>
         </Row>
+        <Divider style={{ margin: "14px 0" }} />
         {missingCapabilities.length > 0 ? (
           <Typography.Text style={{ color: "#d46b08", marginTop: 12, display: "inline-block" }}>
             当前缺少权限：{missingCapabilities.join("、")}。相关动作可能降级或失败。
@@ -223,7 +240,11 @@ export function GroupManagePanel({
               <Card>
                 <Form layout="vertical">
                   <Form.Item label="管理员用户 ID">
-                    <Input value={targetUserId} onChange={(e) => setTargetUserId(e.target.value)} />
+                    <UserLazySelect
+                      members={data.members}
+                      value={targetUserId}
+                      onChange={setTargetUserId}
+                    />
                   </Form.Item>
                   <Form.Item label="管理员头衔">
                     <Input value={adminTitle} onChange={(e) => setAdminTitle(e.target.value)} />
@@ -231,6 +252,7 @@ export function GroupManagePanel({
                   <Space wrap>
                     <Button
                       danger
+                      disabled={!targetUserId}
                       onClick={() =>
                         withDangerConfirm(`确认提权 chat=${chatId}, user=${targetUserId} ?`, () =>
                           actions.runAction(() => apiActions.promote(targetUserId), "提权成功"),
@@ -241,6 +263,7 @@ export function GroupManagePanel({
                     </Button>
                     <Button
                       danger
+                      disabled={!targetUserId}
                       onClick={() =>
                         withDangerConfirm(`确认降权 chat=${chatId}, user=${targetUserId} ?`, () =>
                           actions.runAction(() => apiActions.demote(targetUserId), "降权成功"),
@@ -249,7 +272,9 @@ export function GroupManagePanel({
                     >
                       移除管理员
                     </Button>
-                    <Button onClick={() => void actions.runAction(() => apiActions.setTitle(targetUserId, adminTitle), "设置头衔成功")}>设置头衔</Button>
+                    <Button disabled={!targetUserId} onClick={() => void actions.runAction(() => apiActions.setTitle(targetUserId, adminTitle), "设置头衔成功")}>
+                      设置头衔
+                    </Button>
                   </Space>
                   <Space direction="vertical" size={8} style={{ width: "100%", marginTop: 16 }}>
                     {data.overview?.administrators?.slice(0, 10).map((item) => (

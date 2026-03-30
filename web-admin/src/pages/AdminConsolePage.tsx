@@ -403,8 +403,9 @@ export function AdminConsolePage({ baseUrl, onBaseUrlChange, runtimeState }: Pro
   };
 
   return (
-    <Layout style={{ minHeight: "100vh" }}>
+    <Layout className="admin-console" style={{ minHeight: "100vh" }}>
       <Layout.Sider
+        className="admin-sider"
         width={240}
         theme="light"
         style={{
@@ -416,7 +417,7 @@ export function AdminConsolePage({ baseUrl, onBaseUrlChange, runtimeState }: Pro
           bottom: 0,
         }}
       >
-        <div style={{ padding: 16, borderBottom: "1px solid #f0f0f0" }}>
+        <div className="admin-brand" style={{ padding: 16, borderBottom: "1px solid #f0f0f0" }}>
           <Typography.Title level={5} style={{ margin: 0 }}>
             Telegram 管理后台
           </Typography.Title>
@@ -424,10 +425,10 @@ export function AdminConsolePage({ baseUrl, onBaseUrlChange, runtimeState }: Pro
         </div>
         <Menu mode="inline" selectedKeys={[menuKey]} items={menuItems as unknown as never[]} onClick={(e) => setMenuKey(e.key as MenuKey)} />
       </Layout.Sider>
-      <Layout style={{ marginInlineStart: 240 }}>
-        <Layout.Header style={{ background: "#fff", borderBottom: "1px solid #f0f0f0", paddingInline: 20 }}>
-          <Space style={{ width: "100%", justifyContent: "space-between" }}>
-            <Space>
+      <Layout className="admin-main" style={{ marginInlineStart: 240 }}>
+        <Layout.Header className="admin-header" style={{ background: "#fff", borderBottom: "1px solid #f0f0f0", paddingInline: 20 }}>
+          <Space className="admin-header-bar" style={{ width: "100%", justifyContent: "space-between" }}>
+            <Space className="admin-header-left">
               <Badge status={runtimeState === "active" ? "success" : "default"} text={runtimeState.toUpperCase()} />
               <Tag color="blue">{chatId || "未选择 Chat"}</Tag>
               <Typography.Text type="secondary">最近同步: {lastSyncAt ? formatTime(lastSyncAt.toISOString()) : "-"}</Typography.Text>
@@ -445,7 +446,7 @@ export function AdminConsolePage({ baseUrl, onBaseUrlChange, runtimeState }: Pro
                 })()
               ) : null}
             </Space>
-            <Space>
+            <Space className="admin-header-right">
               <Input.Search
                 placeholder="快捷搜索（审计/处置/申诉）"
                 allowClear
@@ -457,10 +458,12 @@ export function AdminConsolePage({ baseUrl, onBaseUrlChange, runtimeState }: Pro
             </Space>
           </Space>
         </Layout.Header>
-        <Layout.Content style={{ padding: 20, minHeight: "calc(100vh - 64px)", overflow: "auto" }}>
+        <Layout.Content className="admin-content" style={{ padding: 20, minHeight: "calc(100vh - 64px)", overflow: "auto" }}>
           {statusQuery.isError ? <Alert type="error" showIcon message={getErrorMessage(statusQuery.error)} style={{ marginBottom: 16 }} /> : null}
           {isLoading ? <Spin style={{ marginBottom: 16 }} /> : null}
-          {renderContent()}
+          <div key={menuKey} className="admin-panel-stage">
+            {renderContent()}
+          </div>
         </Layout.Content>
       </Layout>
     </Layout>

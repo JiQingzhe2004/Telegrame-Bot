@@ -95,7 +95,7 @@ export function SetupWizardPage({ baseUrl, onBaseUrlChange, onActivated }: Props
 
   return (
     <div className="setup-page">
-      <Card style={{ maxWidth: 980, margin: "32px auto" }}>
+      <Card className="setup-shell-card" style={{ maxWidth: 980, margin: "32px auto" }}>
         <Space direction="vertical" size={20} style={{ width: "100%" }}>
           <Typography.Title level={3} style={{ margin: 0 }}>
             首次配置向导
@@ -112,7 +112,7 @@ export function SetupWizardPage({ baseUrl, onBaseUrlChange, onActivated }: Props
 
           <Row gutter={16}>
             <Col xs={24} lg={10}>
-              <Card type="inner" title="连接与验证">
+              <Card className="setup-section-card" type="inner" title="连接与验证">
                 <Space direction="vertical" size={12} style={{ width: "100%" }}>
                   <div>
                     <Typography.Text strong>后端地址</Typography.Text>
@@ -135,7 +135,7 @@ export function SetupWizardPage({ baseUrl, onBaseUrlChange, onActivated }: Props
               </Card>
             </Col>
             <Col xs={24} lg={14}>
-              <Card type="inner" title="运行配置">
+              <Card className="setup-section-card" type="inner" title="运行配置">
                 <Form
                   form={form}
                   layout="vertical"
