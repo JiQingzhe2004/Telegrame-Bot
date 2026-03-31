@@ -213,6 +213,36 @@ MIGRATIONS: list[Migration] = [
         CREATE INDEX IF NOT EXISTS idx_jvl_chat_user ON join_verification_log(chat_id, user_id);
         """,
     ),
+    Migration(
+        version="0006_whitelists_compat",
+        sql="""
+        CREATE TABLE IF NOT EXISTS whitelists(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          chat_id INTEGER NOT NULL,
+          type TEXT NOT NULL,
+          value TEXT NOT NULL,
+          added_by INTEGER,
+          created_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_whitelists_chat ON whitelists(chat_id, type);
+
+        INSERT INTO whitelists(chat_id, type, value, added_by, created_at)
+        SELECT
+          legacy.chat_id,
+          'user',
+          CAST(legacy.user_id AS TEXT),
+          legacy.added_by,
+          legacy.created_at
+        FROM whitelist AS legacy
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM whitelists AS current
+          WHERE current.chat_id = legacy.chat_id
+            AND current.type = 'user'
+            AND current.value = CAST(legacy.user_id AS TEXT)
+        );
+        """,
+    ),
 ]
 
 

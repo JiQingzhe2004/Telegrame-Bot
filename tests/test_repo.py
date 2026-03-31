@@ -53,3 +53,9 @@ def test_repo_migration_and_basic_ops(tmp_path):
     assert any(int(c["chat_id"]) == 1 for c in chats)
     members = repo.list_chat_members(1)
     assert any(int(m["user_id"]) == 2 for m in members)
+
+
+def test_repo_whitelist_table_and_lookup(tmp_path):
+    repo = make_repo(tmp_path / "bot.db")
+    repo.add_list_item("whitelists", 1, "user", "2")
+    assert repo.is_whitelisted(1, 2, None) is True
