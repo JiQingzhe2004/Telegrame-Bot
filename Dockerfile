@@ -26,6 +26,6 @@ RUN mkdir -p /app/data
 
 VOLUME ["/app/data"]
 
-EXPOSE 10010
+EXPOSE 80
 
 CMD ["python", "-m", "bot.main"]

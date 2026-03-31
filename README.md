@@ -17,7 +17,7 @@ python -m bot.main
 ## 首次配置（在前端向导完成）
 
 1. 启动后端后，终端会打印一次性口令（20 分钟有效）。
-2. 浏览器打开：`http://127.0.0.1:10010`
+2. 浏览器打开：`http://127.0.0.1`
 3. 在向导页面输入一次性口令，填写：
 - BOT Token
 - 管理 API Token
@@ -53,7 +53,7 @@ python -m bot.main
 健康检查：
 
 ```powershell
-curl http://127.0.0.1:10010/healthz
+curl http://127.0.0.1/healthz
 ```
 
 ## Docker 部署
@@ -65,8 +65,10 @@ docker compose up -d
 ```
 
 默认端口：
-- 本地/内网：`http://127.0.0.1:10010`
-- 公网（直连/Cloudflare 回源）：`http://你的域名/`（即 80 端口）
+- 本地/内网：`http://127.0.0.1/`（80 端口）
+- 公网（直连/Cloudflare 回源）：`http://你的域名/`（80 端口）
+
+如果你的系统不允许绑定 80（例如非管理员权限运行），可通过 `.env` 设置 `HTTP_API_PORT` / `WEBHOOK_PORT` 改用其它端口。
 
 升级到最新镜像：
 
