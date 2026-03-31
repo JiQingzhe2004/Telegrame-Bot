@@ -117,6 +117,7 @@ class OpenAiModerator:
         if not raw_text:
             raise ValueError("empty AI response")
         data = json.loads(raw_text)
+        data["_model"] = model
         decision = _coerce(data)
         logger.info("ai_classified model=%s level=%s category=%s", model, decision.level, decision.category)
         return decision
@@ -147,5 +148,6 @@ class OpenAiModerator:
         if not text:
             raise ValueError("empty welcome response")
         if len(text) > 180:
-            return text[:180].strip()
+            text = text[:180].strip()
+        logger.info("ai_welcome_generated model=%s", model)
         return text

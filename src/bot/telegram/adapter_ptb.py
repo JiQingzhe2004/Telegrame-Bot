@@ -94,12 +94,14 @@ async def _build_welcome_text(
 
     fallback = _render_welcome_template(chosen_template, user_name, chat_title)
     if not runtime_config.join_welcome_use_ai:
+        logger.info("welcome_template_used reason=ai_disabled chat_id=%s", chat_id)
         return fallback
     ai_moderator = context.application.bot_data.get("ai_moderator")
     if not isinstance(ai_moderator, OpenAiModerator):
+        logger.info("welcome_template_used reason=ai_unavailable chat_id=%s", chat_id)
         return fallback
     try:
-        return await ai_moderator.generate_welcome(
+        welcome = await ai_moderator.generate_welcome(
             chat_title=chat_title or "群聊",
             user_display_name=user_name,
             language="zh",
@@ -107,6 +109,9 @@ async def _build_welcome_text(
             time_of_day=time_of_day,
             chat_type=chat_type,
         )
+        if welcome.strip() == fallback.strip():
+            logger.info("ai_welcome_matches_template chat_id=%s", chat_id)
+        return welcome
     except Exception as exc:  # noqa: BLE001
         logger.warning("ai welcome generation failed: %s", exc)
         return fallback
@@ -566,8 +571,13 @@ async def on_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     repo.save_violation_message(message_ref, redacted)
 
     decision = await service.decide(message_ref, mod_context)
+    repo.save_decision(
+        message_ref,
+        decision,
+        ai_model=decision.ai_decision.raw.get("_model") if decision.ai_decision else None,
+    )
 
-    perms = await get_permission_snapshot(context.bot, chat.id, user.id)
+    perms = await get_permission_snapshot(context.bot, chat.id)
     enforcement = await enforcer.apply(context.bot, message_ref, decision, perms)
     if enforcement.applied_action != "none":
         repo.save_enforcement(message_ref, enforcement)

@@ -33,7 +33,8 @@ def build_user_prompt(message: MessageRef, context: ModerationContext, redacted_
 def build_welcome_system_prompt() -> str:
     return (
         "You are a Telegram community assistant. "
-        "Write short, warm, safe welcome messages without markdown or emoji spam."
+        "Write short, warm, safe welcome messages without markdown or emoji spam. "
+        "Use the template as a style/content hint, but do not copy it verbatim unless absolutely necessary."
     )
 
 
@@ -57,5 +58,6 @@ def build_welcome_user_prompt(
         f"user_display_name={user_display_name}\n"
         f"template_hint={template}\n"
         f"{extra}"
+        "template_rule=follow the template's intent and key points, but rewrite naturally instead of copying it word for word\n"
         "requirements=<=60 Chinese chars, include user_display_name once, remind reading group rules politely\n"
     )

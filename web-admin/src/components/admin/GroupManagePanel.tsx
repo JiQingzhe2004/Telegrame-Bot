@@ -172,7 +172,7 @@ export function GroupManagePanel({
           </Space>
         }
       >
-        <Typography.Paragraph type="secondary">仅展示已发言/已处置用户池，支持按 user_id、用户名、姓名搜索。</Typography.Paragraph>
+        <Typography.Paragraph type="secondary">仅展示机器人实际收到过消息、或已被处置过的用户；这不是 Telegram 全量成员列表。</Typography.Paragraph>
         <ProTable<ChatMemberBrief>
           rowKey="user_id"
           columns={columns}

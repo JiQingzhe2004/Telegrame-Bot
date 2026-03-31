@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 from telegram import Chat
 
+from bot.domain.models import ModerationDecision
 from bot.domain.moderation import PermissionSnapshot
 from bot.storage.db import Database
 from bot.storage.migrations import migrate
@@ -104,7 +105,20 @@ def test_admin_command_registers_chat_before_permission_check(tmp_path):
 
 def test_group_message_calls_decide_and_can_reach_ai_flow(tmp_path):
     repo = make_repo(tmp_path)
-    service = SimpleNamespace(decide=AsyncMock(return_value=SimpleNamespace(final_action="none", duration_seconds=None)))
+    service = SimpleNamespace(
+        decide=AsyncMock(
+            return_value=ModerationDecision(
+                final_level=0,
+                final_action="none",
+                reason_codes=["ok"],
+                rule_results=[],
+                ai_used=False,
+                ai_decision=None,
+                confidence=0.5,
+                duration_seconds=None,
+            )
+        )
+    )
     enforcer = SimpleNamespace(
         apply=AsyncMock(return_value=SimpleNamespace(applied_action="none")),
     )
@@ -124,11 +138,19 @@ def test_group_message_calls_decide_and_can_reach_ai_flow(tmp_path):
         bot=SimpleNamespace(),
     )
 
+    permission_snapshot = AsyncMock(return_value=PermissionSnapshot(False, False, False))
     with patch("bot.telegram.adapter_ptb.is_admin", new=AsyncMock(return_value=False)), patch(
         "bot.telegram.adapter_ptb.get_permission_snapshot",
-        new=AsyncMock(return_value=PermissionSnapshot(False, False, False)),
+        new=permission_snapshot,
     ):
         asyncio.run(on_group_message(update, context))
 
     assert service.decide.await_count == 1
     assert enforcer.apply.await_count == 1
+    permission_snapshot.assert_awaited_once_with(context.bot, -100990)
+    members = repo.list_chat_members(-100990)
+    assert len(members) == 1
+    assert members[0]["user_id"] == 1234
+    audits = repo.list_audits(-100990)
+    assert len(audits) == 1
+    assert audits[0]["user_id"] == 1234
