@@ -58,11 +58,15 @@ curl http://127.0.0.1:10010/healthz
 
 ## Docker 部署
 
-仓库现在自带官方 [`docker-compose.yml`](/Users/jiqingzhe/Desktop/Telegrame-Bot/docker-compose.yml)，默认会把数据持久化到 Docker Volume `telegram-moderator-bot-data`，更新镜像后不会重新进入首次向导。
+仓库自带官方 `docker-compose.yml`，默认会把数据持久化到 Docker Volume `telegram-moderator-bot-data`，更新镜像后不会重新进入首次向导。
 
 ```powershell
 docker compose up -d
 ```
+
+默认端口：
+- 本地/内网：`http://127.0.0.1:10010`
+- 公网（直连/Cloudflare 回源）：`http://你的域名/`（即 80 端口）
 
 升级到最新镜像：
 
@@ -76,6 +80,44 @@ docker compose up -d
 注意：
 - 不要执行 `docker compose down -v`，否则会删掉数据卷
 - 业务配置仍然保存在数据库，不在镜像里
+
+## 公网部署（推荐：Cloudflare 橙云 + 80/443 同域）
+
+为了避免用户遇到：
+- Cloudflare 502（回源端口不支持/回源失败）
+- 浏览器 `Failed to fetch`（HTTPS/混合内容/端口不可达）
+
+推荐使用本仓库提供的 `docker-compose.public.yml`（带 Caddy 反代），对外只暴露 **80/443**，前端与 API 同域。
+
+### 1) 准备 DNS 与 Cloudflare
+
+- DNS 解析：`tbot.example.com` 指向你的服务器 IP
+- Cloudflare：**建议开橙云**
+- SSL/TLS（重要）：如果你不额外部署 HTTPS（反代/证书），请把 Cloudflare 设为 **Flexible**（浏览器到 Cloudflare 用 HTTPS，Cloudflare 到源站走 HTTP 80）。
+
+### 2) 一条命令启动（替换域名）
+
+在服务器目录执行：
+
+```powershell
+$env:DOMAIN="tbot.example.com"
+docker compose -f docker-compose.public.yml up -d
+```
+
+升级镜像：
+
+```powershell
+docker compose -f docker-compose.public.yml pull
+docker compose -f docker-compose.public.yml up -d
+```
+
+### 3) 自检（必须）
+
+```powershell
+curl http://127.0.0.1/healthz
+```
+
+浏览器访问：`https://tbot.example.com`（无需填写端口）
 
 ## 前端交付方式
 

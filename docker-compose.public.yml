@@ -1,0 +1,43 @@
+services:
+  # 对外只暴露 80/443，由 Caddy 统一处理 HTTPS 和反代
+  caddy:
+    image: caddy:2
+    container_name: telegram-moderator-bot-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # 你的公网域名，例如：tbot.example.com
+      DOMAIN: ${DOMAIN:-tbot.example.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - telegram-moderator-bot
+
+  telegram-moderator-bot:
+    image: ghcr.io/jiqingzhe2004/telegrame-bot:${IMAGE_TAG:-latest}
+    container_name: telegram-moderator-bot
+    restart: unless-stopped
+    # 不再对外暴露 10010，避免用户/Cloudflare 误连端口
+    expose:
+      - "10010"
+    environment:
+      LOG_LEVEL: INFO
+      DB_PATH: /app/data/bot.db
+      HTTP_API_HOST: 0.0.0.0
+      HTTP_API_PORT: 10010
+      WEBHOOK_HOST: 0.0.0.0
+      WEBHOOK_PORT: 10010
+      WEB_ADMIN_DIST_PATH: /app/web-admin/dist
+    volumes:
+      - telegram_moderator_bot_data:/app/data
+
+volumes:
+  telegram_moderator_bot_data:
+    name: telegram-moderator-bot-data
+  caddy_data:
+  caddy_config:
+

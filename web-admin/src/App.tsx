@@ -18,6 +18,11 @@ type ConnectionErrorPageProps = {
 
 function ConnectionErrorPage({ baseUrl, frontendVersion, errorMessage, onRetry }: ConnectionErrorPageProps) {
   const [draftBaseUrl, setDraftBaseUrl] = useState(baseUrl);
+  const hint = (() => {
+    // ApiClient 会抛出带 hint 的 ApiError，这里尽量展示出来帮助用户自救。
+    const maybe = runtimeErrorFromMessage(errorMessage);
+    return maybe?.hint ?? "";
+  })();
 
   useEffect(() => {
     setDraftBaseUrl(baseUrl);
@@ -40,6 +45,14 @@ function ConnectionErrorPage({ baseUrl, frontendVersion, errorMessage, onRetry }
             </Typography.Paragraph>
           </div>
           <Alert type="error" showIcon message={errorMessage} />
+          {hint ? (
+            <Alert
+              type="warning"
+              showIcon
+              message="排查提示"
+              description={<Typography.Paragraph style={{ whiteSpace: "pre-line", marginBottom: 0 }}>{hint}</Typography.Paragraph>}
+            />
+          ) : null}
           <div>
             <Typography.Text strong>API 地址</Typography.Text>
             <Input value={draftBaseUrl} onChange={(e) => setDraftBaseUrl(e.target.value)} placeholder="http://127.0.0.1:10010" />
@@ -51,6 +64,16 @@ function ConnectionErrorPage({ baseUrl, frontendVersion, errorMessage, onRetry }
       </Card>
     </div>
   );
+}
+
+function runtimeErrorFromMessage(_message: string): { hint?: string } | null {
+  // 这里没有直接拿到 error 对象，只能从 window 上兜底读取最近一次错误。
+  // 具体错误对象由 react-query 持有；我们在 App 里会把它挂到 window.__BOT_LAST_ERROR 供页面使用。
+  const anyWin = window as unknown as { __BOT_LAST_ERROR?: unknown };
+  const err = anyWin.__BOT_LAST_ERROR;
+  if (!err || typeof err !== "object") return null;
+  const maybe = err as { hint?: string };
+  return maybe.hint ? maybe : null;
 }
 
 export function App() {
@@ -127,6 +150,7 @@ export function App() {
   }
 
   if (runtimeStateQuery.isError || !runtimeStateQuery.data) {
+    (window as unknown as { __BOT_LAST_ERROR?: unknown }).__BOT_LAST_ERROR = runtimeStateQuery.error;
     return (
       <ConnectionErrorPage
         baseUrl={baseUrl}

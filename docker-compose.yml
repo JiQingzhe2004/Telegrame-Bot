@@ -4,6 +4,10 @@ services:
     container_name: telegram-moderator-bot
     restart: unless-stopped
     ports:
+      # 对外同时开放 80 与 10010：
+      # - 80：适配 Cloudflare 橙云回源（不支持回源到 10010 这类自定义端口）
+      # - 10010：保留给本地/内网直连与调试
+      - "80:10010"
       - "10010:10010"
     environment:
       LOG_LEVEL: INFO

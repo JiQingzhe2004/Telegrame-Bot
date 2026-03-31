@@ -1,0 +1,13 @@
+{$DOMAIN} {
+  encode gzip zstd
+
+  @health path /healthz
+  handle @health {
+    reverse_proxy telegram-moderator-bot:10010
+  }
+
+  # 管理前端与 API 都由后端提供，同域可避免 CORS/混合内容问题
+  handle {
+    reverse_proxy telegram-moderator-bot:10010
+  }
+}

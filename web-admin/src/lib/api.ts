@@ -175,6 +175,7 @@ export class ApiError extends Error {
   status: number;
   code: string;
   detail?: unknown;
+  hint?: string;
 
   constructor(params: { message: string; status: number; code?: string; detail?: unknown }) {
     super(params.message);
@@ -189,10 +190,50 @@ export class ApiClient {
   constructor(private readonly baseUrl: string) {}
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
-    const resp = await fetch(`${this.baseUrl}${path}`, init);
+    let resp: Response;
+    try {
+      resp = await fetch(`${this.baseUrl}${path}`, init);
+    } catch (err) {
+      // 浏览器层面的网络失败（DNS/端口不通/HTTPS 握手失败/混合内容/CORS 等）
+      const e = new ApiError({
+        message: "网络请求失败（无法连接后端）",
+        status: 0,
+        code: "network_error",
+        detail: err,
+      });
+      e.hint =
+        "常见原因：\n" +
+        "- 访问的是 https 页面，但 API 地址填了 http（会被浏览器拦截，表现为 Failed to fetch）\n" +
+        "- 源站未开放 80/443/8080/8443 等端口，或防火墙拦截\n" +
+        "- 开了 Cloudflare 橙云但回源端口不受支持（例如直接暴露 10010）\n" +
+        "自检：在服务器上访问 /healthz，或临时用 http://域名:端口/healthz 验证后端是否可达。";
+      throw e;
+    }
     const contentType = resp.headers.get("content-type") ?? "";
     const maybeJson = contentType.includes("application/json");
     const payload = maybeJson ? await resp.json() : await resp.text();
+
+    // 有些网关错误会返回 HTML（例如 Cloudflare 502），这时给更明确的提示。
+    if (typeof payload === "string") {
+      const text = payload.trim();
+      const looksLikeHtml = text.startsWith("<!DOCTYPE html") || text.startsWith("<html") || text.includes("<head>");
+      const looksLikeCloudflare = text.toLowerCase().includes("cloudflare") && text.toLowerCase().includes("error code");
+      if (looksLikeHtml && looksLikeCloudflare) {
+        const e = new ApiError({
+          message: `网关错误（可能是 Cloudflare 回源失败，HTTP ${resp.status || "?"}）`,
+          status: resp.status,
+          code: "cloudflare_gateway_error",
+          detail: text.slice(0, 2000),
+        });
+        e.hint =
+          "这通常不是后端接口逻辑报错，而是 Cloudflare 连接不到源站。\n" +
+          "常见原因：源站只开了自定义端口（例如 10010），Cloudflare 回源端口不支持；或源站 80/443 未正确反代。\n" +
+          "修复建议：\n" +
+          "- 让外网入口走 80/443/8080/8443，再反代到 10010\n" +
+          "- 或临时灰云（DNS only）直连排障";
+        throw e;
+      }
+    }
 
     if (!resp.ok) {
       let message = `HTTP ${resp.status}`;
@@ -211,7 +252,13 @@ export class ApiClient {
       } else if (typeof payload === "string" && payload.trim()) {
         message = payload;
       }
-      throw new ApiError({ message, status: resp.status, code, detail });
+      const e = new ApiError({ message, status: resp.status, code, detail });
+      if (resp.status === 502 && typeof payload === "string" && payload.trim().startsWith("<!DOCTYPE html")) {
+        e.hint =
+          "收到的是 HTML 网关错误页，说明请求可能没到后端（反代/回源失败）。\n" +
+          "建议先访问 /healthz 确认源站可达，然后检查反代端口是否为 80/443/8080/8443。";
+      }
+      throw e;
     }
 
     const envelope = payload as ApiEnvelope<T>;
