@@ -58,6 +58,9 @@ export function SystemSettingsPanel({
               }))}
               onChange={(value) => setDraftChatId(value)}
             />
+            <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+              自动获取只会列出机器人已接收到事件的群。首次使用时，先把机器人拉进群；若还没出现，在群里发一条消息或命令后再刷新。
+            </Typography.Paragraph>
           </Col>
           <Col xs={24} md={12} style={{ display: "flex", alignItems: "end" }}>
             <Space>

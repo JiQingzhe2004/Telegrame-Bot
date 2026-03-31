@@ -22,7 +22,7 @@ class BotRepository:
         self.db = db
         self.defaults = defaults
 
-    def upsert_chat_user(self, chat: ChatRef, user: UserRef) -> None:
+    def upsert_chat(self, chat: ChatRef) -> None:
         now = to_iso(utc_now())
         with self.db.connect() as conn:
             conn.execute(
@@ -32,14 +32,6 @@ class BotRepository:
                 ON CONFLICT(chat_id) DO UPDATE SET title=excluded.title, type=excluded.type, updated_at=excluded.updated_at
                 """,
                 (chat.chat_id, chat.title, chat.type, now, now),
-            )
-            conn.execute(
-                """
-                INSERT INTO users(user_id, username, first_name, last_name, is_bot, updated_at)
-                VALUES(?, ?, ?, ?, ?, ?)
-                ON CONFLICT(user_id) DO UPDATE SET username=excluded.username, first_name=excluded.first_name, last_name=excluded.last_name, is_bot=excluded.is_bot, updated_at=excluded.updated_at
-                """,
-                (user.user_id, user.username, user.first_name, user.last_name, 1 if user.is_bot else 0, now),
             )
             conn.execute(
                 """
@@ -58,6 +50,19 @@ class BotRepository:
                     self.defaults["level3_mute_seconds"],
                     now,
                 ),
+            )
+
+    def upsert_chat_user(self, chat: ChatRef, user: UserRef) -> None:
+        self.upsert_chat(chat)
+        now = to_iso(utc_now())
+        with self.db.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO users(user_id, username, first_name, last_name, is_bot, updated_at)
+                VALUES(?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET username=excluded.username, first_name=excluded.first_name, last_name=excluded.last_name, is_bot=excluded.is_bot, updated_at=excluded.updated_at
+                """,
+                (user.user_id, user.username, user.first_name, user.last_name, 1 if user.is_bot else 0, now),
             )
 
     def get_settings(self, chat_id: int) -> ChatSettings:

@@ -91,7 +91,11 @@ export function AdminConsolePage({ baseUrl, onBaseUrlChange, runtimeState }: Pro
   });
 
   useEffect(() => {
-    if (!chatId && chatsQuery.data?.length) setChatId(String(chatsQuery.data[0].chat_id));
+    if (!chatId && chatsQuery.data?.length) {
+      const nextChatId = String(chatsQuery.data[0].chat_id);
+      setChatId(nextChatId);
+      writeStorage("bot_chat_id", nextChatId);
+    }
   }, [chatId, chatsQuery.data]);
 
   const settingsQuery = useQuery({
@@ -251,6 +255,22 @@ export function AdminConsolePage({ baseUrl, onBaseUrlChange, runtimeState }: Pro
     }
   };
 
+  const reloadChats = async () => {
+    const out = await chatsQuery.refetch();
+    const nextChatId = out.data?.[0] ? String(out.data[0].chat_id) : "";
+    if (!out.data?.length) {
+      message.info("还没有可用群聊。请先把机器人拉进群；若仍未出现，在群里发送一条消息或命令后再试。");
+      return;
+    }
+    if (!chatId && nextChatId) {
+      setChatId(nextChatId);
+      writeStorage("bot_chat_id", nextChatId);
+      message.success("已自动选中第一个可用群");
+      return;
+    }
+    message.success("群列表已刷新");
+  };
+
   const actions: AdminActions = {
     refreshAll,
     updateSettings: async (payload) => {
@@ -352,7 +372,26 @@ export function AdminConsolePage({ baseUrl, onBaseUrlChange, runtimeState }: Pro
 
   const renderContent = () => {
     if (!adminToken) return <Alert type="warning" showIcon message="请先在系统设置中填写管理令牌" />;
-    if (!chatId) return <Alert type="info" showIcon message="请先选择 Chat ID（可点击系统设置里的自动获取）" />;
+    if (!chatId) {
+      return (
+        <Alert
+          type="info"
+          showIcon
+          message="还没有可用的 Chat"
+          description="机器人被拉进群后会自动登记该群。若列表还没出现，先点一次“自动获取 Chat”；如果仍没有，就在目标群里发送一条消息或管理员命令后再试。"
+          action={
+            <Space>
+              <Button size="small" onClick={() => void reloadChats()}>
+                自动获取 Chat
+              </Button>
+              <Button size="small" type="link" onClick={() => setMenuKey("system")}>
+                打开系统设置
+              </Button>
+            </Space>
+          }
+        />
+      );
+    }
 
     if (menuKey === "overview") {
       return <RunOverviewPanel runtimeState={runtimeState} chatId={chatId} data={bundle} onPermissionCheck={runPermissionCheck} checking={permissionChecking} />;
@@ -388,10 +427,7 @@ export function AdminConsolePage({ baseUrl, onBaseUrlChange, runtimeState }: Pro
         adminToken={adminToken}
         chatId={chatId}
         knownChats={bundle.knownChats}
-        onReloadChats={async () => {
-          const out = await chatsQuery.refetch();
-          if (!(out.data?.length ?? 0)) message.info("暂无群记录，请在群里 @机器人 发一条消息");
-        }}
+        onReloadChats={reloadChats}
         onSaveConnection={(values) => {
           onBaseUrlChange(values.baseUrl);
           setAdminToken(values.adminToken);

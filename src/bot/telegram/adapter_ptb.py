@@ -50,6 +50,12 @@ def _pending_verifications(application: Application) -> dict[str, dict[str, Any]
     return bucket
 
 
+def _remember_group_chat(repo: BotRepository, chat: Chat) -> None:
+    if chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
+        return
+    repo.upsert_chat(ChatRef(chat_id=chat.id, type=chat.type, title=chat.title))
+
+
 def _render_welcome_template(template: str, user_name: str, chat_title: str | None) -> str:
     base = template or "欢迎 {user} 加入 {chat}，请先阅读群规并友善交流。"
     return base.replace("{user}", user_name).replace("{chat}", chat_title or "本群")
@@ -326,6 +332,7 @@ async def on_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     repo: BotRepository = context.application.bot_data["repo"]
+    _remember_group_chat(repo, chat)
     runtime_config: RuntimeConfig = context.application.bot_data.get("runtime_config") or RuntimeConfig()
     timeout_seconds = max(30, int(runtime_config.join_verification_timeout_seconds))
     max_attempts = int(runtime_config.join_verification_max_attempts)
@@ -503,12 +510,13 @@ async def on_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     chat = update.effective_chat
     if chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
         return
+    repo: BotRepository = context.application.bot_data["repo"]
+    _remember_group_chat(repo, chat)
     msg = update.effective_message
     text = msg.text or msg.caption or ""
     if not text:
         return
 
-    repo: BotRepository = context.application.bot_data["repo"]
     service: ModerationService = context.application.bot_data["moderation_service"]
     enforcer: Enforcer = context.application.bot_data["enforcer"]
     runtime_config: RuntimeConfig = context.application.bot_data.get("runtime_config") or RuntimeConfig()

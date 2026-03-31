@@ -167,7 +167,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release-bin | Out-Null
-          Copy-Item dist/telegram-moderator-bot/telegram-moderator-bot.exe release-bin/
+          Copy-Item dist/telegram-moderator-bot/* release-bin/ -Recurse
           New-Item -ItemType Directory -Force -Path release-bin/web-admin | Out-Null
           Copy-Item web-admin/dist release-bin/web-admin/dist -Recurse
           Copy-Item README.md release-bin/
@@ -182,7 +182,7 @@ jobs:
           set -euo pipefail
           rm -rf release-bin
           mkdir -p release-bin/web-admin
-          cp dist/telegram-moderator-bot/telegram-moderator-bot release-bin/
+          cp -R dist/telegram-moderator-bot/. release-bin/
           cp -R web-admin/dist release-bin/web-admin/dist
           cp README.md release-bin/
           cp .env.example release-bin/
@@ -196,7 +196,7 @@ jobs:
           set -euo pipefail
           rm -rf release-bin
           mkdir -p release-bin/web-admin
-          cp dist/telegram-moderator-bot/telegram-moderator-bot release-bin/
+          cp -R dist/telegram-moderator-bot/. release-bin/
           cp -R web-admin/dist release-bin/web-admin/dist
           cp README.md release-bin/
           cp .env.example release-bin/

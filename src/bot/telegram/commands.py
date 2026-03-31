@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 
-from telegram import Update
+from telegram import Chat, Update
 from telegram.ext import ContextTypes
 
+from bot.domain.models import ChatRef
 from bot.telegram.permissions import is_admin
 
 
@@ -12,9 +13,19 @@ def _repo(ctx: ContextTypes.DEFAULT_TYPE):
     return ctx.application.bot_data["repo"]
 
 
+def _remember_group_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.effective_chat:
+        return
+    chat = update.effective_chat
+    if chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
+        return
+    _repo(context).upsert_chat(ChatRef(chat_id=chat.id, type=chat.type, title=chat.title))
+
+
 async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_chat or not update.effective_user:
         return
+    _remember_group_chat(update, context)
     if not await is_admin(context.bot, update.effective_chat.id, update.effective_user.id):
         return
     summary = _repo(context).status_summary()
@@ -24,6 +35,7 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 async def config_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_chat or not update.effective_user:
         return
+    _remember_group_chat(update, context)
     if not await is_admin(context.bot, update.effective_chat.id, update.effective_user.id):
         return
     settings = _repo(context).get_settings(update.effective_chat.id)
@@ -33,6 +45,7 @@ async def config_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 async def ai_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_chat or not update.effective_user:
         return
+    _remember_group_chat(update, context)
     if not await is_admin(context.bot, update.effective_chat.id, update.effective_user.id):
         return
     if not context.args:
@@ -46,6 +59,7 @@ async def ai_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def threshold_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_chat or not update.effective_user:
         return
+    _remember_group_chat(update, context)
     if not await is_admin(context.bot, update.effective_chat.id, update.effective_user.id):
         return
     if not context.args:
@@ -59,6 +73,7 @@ async def threshold_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def banword_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_chat or not update.effective_user:
         return
+    _remember_group_chat(update, context)
     if not await is_admin(context.bot, update.effective_chat.id, update.effective_user.id):
         return
     if len(context.args) < 2 or context.args[0] not in {"add", "del"}:
@@ -75,6 +90,7 @@ async def banword_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 async def whitelist_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_chat or not update.effective_user:
         return
+    _remember_group_chat(update, context)
     if not await is_admin(context.bot, update.effective_chat.id, update.effective_user.id):
         return
     if len(context.args) < 2 or context.args[0] not in {"add", "del"}:
@@ -91,6 +107,7 @@ async def whitelist_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def forgive_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_chat or not update.effective_user:
         return
+    _remember_group_chat(update, context)
     if not await is_admin(context.bot, update.effective_chat.id, update.effective_user.id):
         return
     if not context.args:
@@ -104,6 +121,7 @@ async def forgive_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 async def appeal_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_chat or not update.effective_user:
         return
+    _remember_group_chat(update, context)
     reason = " ".join(context.args).strip() if context.args else ""
     if not reason:
         await update.message.reply_text("usage: /appeal <reason>")
