@@ -565,8 +565,7 @@ async def on_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     redacted = redact_pii(text)
     repo.save_violation_message(message_ref, redacted)
 
-    ai_moderator: OpenAiModerator | None = context.application.bot_data.get("ai_moderator")
-    decision = await service.evaluate(message_ref, mod_context, ai_moderator)
+    decision = await service.decide(message_ref, mod_context)
 
     perms = await get_permission_snapshot(context.bot, chat.id, user.id)
     enforcement = await enforcer.apply(context.bot, message_ref, decision, perms)

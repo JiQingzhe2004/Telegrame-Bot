@@ -58,11 +58,19 @@ jobs:
     needs: verify
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate release notes
+        run: python3 packaging/generate_release_notes.py "${{ github.ref_name }}" release-notes.md
+
       - name: Ensure release exists
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          generate_release_notes: true
+          body_path: release-notes.md
 
   source_bundle:
     name: Build Source Bundle

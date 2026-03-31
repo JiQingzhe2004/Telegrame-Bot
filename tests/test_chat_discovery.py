@@ -4,11 +4,13 @@ from unittest.mock import AsyncMock, patch
 
 from telegram import Chat
 
+from bot.domain.moderation import PermissionSnapshot
 from bot.storage.db import Database
 from bot.storage.migrations import migrate
 from bot.storage.repo import BotRepository
 from bot.telegram.adapter_ptb import on_group_message, on_new_chat_members
 from bot.telegram.commands import status_cmd
+from bot.utils.time import utc_now
 
 
 def make_repo(tmp_path) -> BotRepository:
@@ -98,3 +100,35 @@ def test_admin_command_registers_chat_before_permission_check(tmp_path):
 
     chats = repo.list_chats()
     assert any(int(chat["chat_id"]) == -100789 for chat in chats)
+
+
+def test_group_message_calls_decide_and_can_reach_ai_flow(tmp_path):
+    repo = make_repo(tmp_path)
+    service = SimpleNamespace(decide=AsyncMock(return_value=SimpleNamespace(final_action="none", duration_seconds=None)))
+    enforcer = SimpleNamespace(
+        apply=AsyncMock(return_value=SimpleNamespace(applied_action="none")),
+    )
+    update = SimpleNamespace(
+        effective_chat=SimpleNamespace(id=-100990, type=Chat.SUPERGROUP, title="AI群"),
+        effective_user=SimpleNamespace(id=1234, is_bot=False, username="member", first_name="Member", last_name=None),
+        effective_message=SimpleNamespace(text="测试消息", caption=None, message_id=55, date=utc_now()),
+    )
+    context = SimpleNamespace(
+        application=SimpleNamespace(
+            bot_data={
+                "repo": repo,
+                "moderation_service": service,
+                "enforcer": enforcer,
+            }
+        ),
+        bot=SimpleNamespace(),
+    )
+
+    with patch("bot.telegram.adapter_ptb.is_admin", new=AsyncMock(return_value=False)), patch(
+        "bot.telegram.adapter_ptb.get_permission_snapshot",
+        new=AsyncMock(return_value=PermissionSnapshot(False, False, False)),
+    ):
+        asyncio.run(on_group_message(update, context))
+
+    assert service.decide.await_count == 1
+    assert enforcer.apply.await_count == 1
