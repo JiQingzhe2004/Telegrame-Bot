@@ -75,9 +75,28 @@ body,
 }
 
 .admin-header {
+  display: flex;
+  align-items: center;
+  line-height: normal;
   backdrop-filter: blur(8px);
   background: oklch(1 0 0 / 0.8) !important;
   border-bottom: 1px solid var(--line-soft) !important;
+}
+
+.admin-header .admin-header-bar,
+.admin-header .admin-header-left,
+.admin-header .admin-header-right {
+  display: flex;
+  align-items: center;
+}
+
+.admin-header .admin-header-right {
+  margin-inline-start: auto;
+}
+
+.admin-header .admin-header-right .ant-input-search {
+  display: flex;
+  align-items: center;
 }
 
 .admin-content {
@@ -136,7 +155,20 @@ body,
     linear-gradient(180deg, oklch(0.99 0.004 257.41), oklch(0.965 0.014 252.93));
 }
 
+.auth-page {
+  min-height: 100vh;
+  padding: 20px;
+  background:
+    radial-gradient(circle at 14% 10%, oklch(0.85 0.08 252.31 / 0.24), transparent 34%),
+    radial-gradient(circle at 88% 6%, oklch(0.86 0.07 188.56 / 0.22), transparent 30%),
+    linear-gradient(180deg, oklch(0.992 0.003 257.41), oklch(0.972 0.012 252.93));
+}
+
 .setup-shell-card {
+  overflow: hidden;
+}
+
+.auth-shell-card {
   overflow: hidden;
 }
 
@@ -203,6 +235,10 @@ body,
   }
 
   .setup-page {
+    padding: 12px;
+  }
+
+  .auth-page {
     padding: 12px;
   }
 }

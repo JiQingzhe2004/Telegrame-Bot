@@ -52,15 +52,26 @@ type Props = {
   baseUrl: string;
   onBaseUrlChange: (value: string) => void;
   runtimeState: "setup" | "active";
+  adminToken: string;
+  frontendVersion: string;
+  backendVersion: string;
+  onLogout: () => void;
 };
 
-export function AdminConsolePage({ baseUrl, onBaseUrlChange, runtimeState }: Props) {
+export function AdminConsolePage({
+  baseUrl,
+  onBaseUrlChange,
+  runtimeState,
+  adminToken,
+  frontendVersion,
+  backendVersion,
+  onLogout,
+}: Props) {
   const { message, notification } = AntApp.useApp();
   const queryClient = useQueryClient();
   const api = useMemo(() => new ApiClient(baseUrl), [baseUrl]);
 
   const [menuKey, setMenuKey] = useState<MenuKey>("overview");
-  const [adminToken, setAdminToken] = useState(readStorage("bot_admin_token"));
   const [chatId, setChatId] = useState(readStorage("bot_chat_id"));
   const [memberKeyword, setMemberKeyword] = useState(readStorage("bot_member_keyword"));
   const [globalSearch, setGlobalSearch] = useState("");
@@ -75,17 +86,17 @@ export function AdminConsolePage({ baseUrl, onBaseUrlChange, runtimeState }: Pro
   const chatReady = Boolean(chatId);
 
   const statusQuery = useQuery({
-    queryKey: queryKeys.status(adminToken),
+    queryKey: queryKeys.status(baseUrl, adminToken),
     queryFn: () => api.getStatus(adminToken),
     enabled: authed,
   });
   const runtimeConfigQuery = useQuery({
-    queryKey: queryKeys.runtimeConfig(adminToken),
+    queryKey: queryKeys.runtimeConfig(baseUrl, adminToken),
     queryFn: () => api.getRuntimeConfig(adminToken),
     enabled: authed,
   });
   const chatsQuery = useQuery({
-    queryKey: queryKeys.chats(adminToken),
+    queryKey: queryKeys.chats(baseUrl, adminToken),
     queryFn: () => api.listChats(adminToken),
     enabled: authed,
   });
@@ -99,43 +110,43 @@ export function AdminConsolePage({ baseUrl, onBaseUrlChange, runtimeState }: Pro
   }, [chatId, chatsQuery.data]);
 
   const settingsQuery = useQuery({
-    queryKey: queryKeys.settings(chatId),
+    queryKey: queryKeys.settings(baseUrl, chatId, adminToken),
     queryFn: () => api.getSettings(chatId, adminToken),
     enabled: authed && chatReady,
   });
   const overviewQuery = useQuery({
-    queryKey: queryKeys.overview(chatId),
+    queryKey: queryKeys.overview(baseUrl, chatId, adminToken),
     queryFn: () => api.adminOverview(chatId, adminToken),
     enabled: authed && chatReady,
   });
   const membersQuery = useQuery({
-    queryKey: queryKeys.members(chatId, memberKeyword),
+    queryKey: queryKeys.members(baseUrl, chatId, memberKeyword, adminToken),
     queryFn: () => api.adminListMembers(chatId, adminToken, 200, memberKeyword),
     enabled: authed && chatReady,
     refetchInterval: menuKey === "group" && memberAutoRefresh ? 5000 : false,
   });
   const whitelistQuery = useQuery({
-    queryKey: queryKeys.whitelist(chatId),
+    queryKey: queryKeys.whitelist(baseUrl, chatId, adminToken),
     queryFn: () => api.listWhitelist(chatId, adminToken),
     enabled: authed && chatReady,
   });
   const blacklistQuery = useQuery({
-    queryKey: queryKeys.blacklist(chatId),
+    queryKey: queryKeys.blacklist(baseUrl, chatId, adminToken),
     queryFn: () => api.listBlacklist(chatId, adminToken),
     enabled: authed && chatReady,
   });
   const auditsQuery = useQuery({
-    queryKey: queryKeys.audits(chatId),
+    queryKey: queryKeys.audits(baseUrl, chatId, adminToken),
     queryFn: () => api.listAudits(chatId, adminToken, 100),
     enabled: authed && chatReady,
   });
   const enforcementsQuery = useQuery({
-    queryKey: queryKeys.enforcements(chatId),
+    queryKey: queryKeys.enforcements(baseUrl, chatId, adminToken),
     queryFn: () => api.listEnforcements(chatId, adminToken, 100),
     enabled: authed && chatReady,
   });
   const appealsQuery = useQuery({
-    queryKey: queryKeys.appeals(chatId),
+    queryKey: queryKeys.appeals(baseUrl, chatId, adminToken),
     queryFn: () => api.listAppeals(chatId, adminToken),
     enabled: authed && chatReady,
   });
@@ -371,7 +382,6 @@ export function AdminConsolePage({ baseUrl, onBaseUrlChange, runtimeState }: Pro
   };
 
   const renderContent = () => {
-    if (!adminToken) return <Alert type="warning" showIcon message="请先在系统设置中填写管理令牌" />;
     if (!chatId) {
       return (
         <Alert
@@ -424,16 +434,13 @@ export function AdminConsolePage({ baseUrl, onBaseUrlChange, runtimeState }: Pro
     return (
       <SystemSettingsPanel
         baseUrl={baseUrl}
-        adminToken={adminToken}
         chatId={chatId}
         knownChats={bundle.knownChats}
         onReloadChats={reloadChats}
         onSaveConnection={(values) => {
           onBaseUrlChange(values.baseUrl);
-          setAdminToken(values.adminToken);
           setChatId(values.chatId);
           writeStorage("bot_base_url", values.baseUrl);
-          writeStorage("bot_admin_token", values.adminToken);
           writeStorage("bot_chat_id", values.chatId);
           message.success("连接配置已保存");
         }}
@@ -468,10 +475,12 @@ export function AdminConsolePage({ baseUrl, onBaseUrlChange, runtimeState }: Pro
       </Layout.Sider>
       <Layout className="admin-main" style={{ marginInlineStart: 240 }}>
         <Layout.Header className="admin-header" style={{ background: "#fff", borderBottom: "1px solid #f0f0f0", paddingInline: 20 }}>
-          <Space className="admin-header-bar" style={{ width: "100%", justifyContent: "space-between" }}>
-            <Space className="admin-header-left">
+          <Space align="center" className="admin-header-bar" style={{ width: "100%", justifyContent: "space-between" }}>
+            <Space align="center" className="admin-header-left">
               <Badge status={runtimeState === "active" ? "success" : "default"} text={runtimeState.toUpperCase()} />
               <Tag color="blue">{chatId || "未选择 Chat"}</Tag>
+              <Tag color="cyan">前端 v{frontendVersion}</Tag>
+              <Tag color="geekblue">后端 v{backendVersion}</Tag>
               <Typography.Text type="secondary">最近同步: {lastSyncAt ? formatTime(lastSyncAt.toISOString()) : "-"}</Typography.Text>
               {overviewQuery.data?.capabilities ? (
                 (() => {
@@ -487,7 +496,7 @@ export function AdminConsolePage({ baseUrl, onBaseUrlChange, runtimeState }: Pro
                 })()
               ) : null}
             </Space>
-            <Space className="admin-header-right">
+            <Space align="center" className="admin-header-right">
               <Input.Search
                 placeholder="快捷搜索（审计/处置/申诉）"
                 allowClear
@@ -496,6 +505,7 @@ export function AdminConsolePage({ baseUrl, onBaseUrlChange, runtimeState }: Pro
                 style={{ width: 280 }}
               />
               <Button onClick={() => void refreshAll()}>手动刷新</Button>
+              <Button onClick={onLogout}>退出登录</Button>
             </Space>
           </Space>
         </Layout.Header>

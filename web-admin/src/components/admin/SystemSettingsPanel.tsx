@@ -4,18 +4,16 @@ import type { KnownChat } from "@/lib/api";
 
 type Props = {
   baseUrl: string;
-  adminToken: string;
   chatId: string;
   knownChats: KnownChat[];
   onReloadChats: () => Promise<void>;
-  onSaveConnection: (values: { baseUrl: string; adminToken: string; chatId: string }) => void;
+  onSaveConnection: (values: { baseUrl: string; chatId: string }) => void;
   runtimeState: "setup" | "active";
   lastSyncText: string;
 };
 
 export function SystemSettingsPanel({
   baseUrl,
-  adminToken,
   chatId,
   knownChats,
   onReloadChats,
@@ -24,11 +22,9 @@ export function SystemSettingsPanel({
   lastSyncText,
 }: Props) {
   const [draftBaseUrl, setDraftBaseUrl] = useState(baseUrl);
-  const [draftAdminToken, setDraftAdminToken] = useState(adminToken);
   const [draftChatId, setDraftChatId] = useState(chatId);
 
   useEffect(() => setDraftBaseUrl(baseUrl), [baseUrl]);
-  useEffect(() => setDraftAdminToken(adminToken), [adminToken]);
   useEffect(() => setDraftChatId(chatId), [chatId]);
 
   return (
@@ -38,10 +34,9 @@ export function SystemSettingsPanel({
           <Col xs={24} md={12}>
             <Typography.Text>API 地址</Typography.Text>
             <Input value={draftBaseUrl} onChange={(e) => setDraftBaseUrl(e.target.value)} />
-          </Col>
-          <Col xs={24} md={12}>
-            <Typography.Text>管理令牌</Typography.Text>
-            <Input.Password value={draftAdminToken} onChange={(e) => setDraftAdminToken(e.target.value)} />
+            <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+              管理令牌改为登录页输入，这里只保留服务地址和当前群设置。
+            </Typography.Paragraph>
           </Col>
         </Row>
         <Row gutter={12}>
@@ -65,7 +60,7 @@ export function SystemSettingsPanel({
           <Col xs={24} md={12} style={{ display: "flex", alignItems: "end" }}>
             <Space>
               <Button onClick={() => void onReloadChats()}>自动获取 Chat</Button>
-              <Button type="primary" onClick={() => onSaveConnection({ baseUrl: draftBaseUrl, adminToken: draftAdminToken, chatId: draftChatId })}>
+              <Button type="primary" onClick={() => onSaveConnection({ baseUrl: draftBaseUrl, chatId: draftChatId })}>
                 保存连接配置
               </Button>
               <Tag color={runtimeState === "active" ? "success" : "default"}>{runtimeState.toUpperCase()}</Tag>

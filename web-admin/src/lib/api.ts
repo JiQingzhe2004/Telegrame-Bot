@@ -20,6 +20,7 @@ export type RuntimeState = {
   config_complete: boolean;
   config_version: number;
   run_mode: "polling" | "webhook";
+  backend_version: string;
 };
 
 export type RuntimeConfigPublic = {
@@ -52,7 +53,14 @@ export type RuntimeConfigPublic = {
 export type SetupState = {
   state: "setup" | "active";
   config_complete: boolean;
+  backend_version: string;
   runtime_config: Record<string, unknown>;
+};
+
+export type AdminSession = {
+  authenticated: boolean;
+  backend_version: string;
+  runtime_state: RuntimeState;
 };
 
 export type AuditRecord = {
@@ -215,6 +223,14 @@ export class ApiClient {
 
   getSetupState() {
     return this.request<SetupState>("/api/v1/setup/state");
+  }
+
+  login(adminToken: string) {
+    return this.request<AdminSession>("/api/v1/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ admin_token: adminToken }),
+    });
   }
 
   setupAuth(code: string) {

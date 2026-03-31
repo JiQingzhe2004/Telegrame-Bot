@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   App as AntApp,
@@ -13,15 +13,18 @@ import {
   Space,
   Steps,
   Switch,
+  Tag,
   Typography,
 } from "antd";
 import { ApiClient } from "@/lib/api";
-import { getErrorMessage, writeStorage } from "@/lib/helpers";
+import { getErrorMessage } from "@/lib/helpers";
 
 type Props = {
   baseUrl: string;
+  frontendVersion: string;
+  backendVersion: string;
   onBaseUrlChange: (value: string) => void;
-  onActivated: () => Promise<unknown> | void;
+  onActivated: (adminToken: string) => Promise<unknown> | void;
 };
 
 type SetupFormValues = {
@@ -40,14 +43,20 @@ type SetupFormValues = {
   join_welcome_template: string;
 };
 
-export function SetupWizardPage({ baseUrl, onBaseUrlChange, onActivated }: Props) {
+export function SetupWizardPage({ baseUrl, frontendVersion, backendVersion, onBaseUrlChange, onActivated }: Props) {
   const { message } = AntApp.useApp();
-  const api = useMemo(() => new ApiClient(baseUrl), [baseUrl]);
+  const [draftBaseUrl, setDraftBaseUrl] = useState(baseUrl);
+  const effectiveBaseUrl = draftBaseUrl.trim() || baseUrl;
+  const api = useMemo(() => new ApiClient(effectiveBaseUrl), [effectiveBaseUrl]);
   const [step, setStep] = useState(0);
   const [authCode, setAuthCode] = useState("");
   const [setupToken, setSetupToken] = useState("");
   const [loading, setLoading] = useState(false);
   const [form] = Form.useForm<SetupFormValues>();
+
+  useEffect(() => {
+    setDraftBaseUrl(baseUrl);
+  }, [baseUrl]);
 
   const doAuth = async () => {
     if (!authCode.trim()) {
@@ -57,6 +66,7 @@ export function SetupWizardPage({ baseUrl, onBaseUrlChange, onActivated }: Props
     setLoading(true);
     try {
       const out = await api.setupAuth(authCode.trim());
+      onBaseUrlChange(effectiveBaseUrl);
       setSetupToken(out.setup_token);
       setStep(1);
       message.success("口令验证成功");
@@ -71,6 +81,7 @@ export function SetupWizardPage({ baseUrl, onBaseUrlChange, onActivated }: Props
     setLoading(true);
     try {
       const out = await api.setupReissueCode();
+      onBaseUrlChange(effectiveBaseUrl);
       setAuthCode(out.code);
       message.success(`已生成新口令（${out.expires_in_minutes} 分钟有效）`);
     } catch (error) {
@@ -90,9 +101,9 @@ export function SetupWizardPage({ baseUrl, onBaseUrlChange, onActivated }: Props
       setLoading(true);
       await api.setupConfig(setupToken, values);
       await api.setupActivate(setupToken);
-      writeStorage("bot_admin_token", values.admin_api_token);
+      onBaseUrlChange(effectiveBaseUrl);
       message.success("保存并激活成功");
-      await onActivated();
+      await onActivated(values.admin_api_token);
     } catch (error) {
       message.error(`激活失败：${getErrorMessage(error)}`);
     } finally {
@@ -104,6 +115,10 @@ export function SetupWizardPage({ baseUrl, onBaseUrlChange, onActivated }: Props
     <div className="setup-page">
       <Card className="setup-shell-card" style={{ maxWidth: 980, margin: "32px auto" }}>
         <Space direction="vertical" size={20} style={{ width: "100%" }}>
+          <Space size={10} wrap>
+            <Tag color="blue">前端 v{frontendVersion}</Tag>
+            <Tag color="geekblue">后端 v{backendVersion}</Tag>
+          </Space>
           <Typography.Title level={3} style={{ margin: 0 }}>
             首次配置向导
           </Typography.Title>
@@ -123,7 +138,7 @@ export function SetupWizardPage({ baseUrl, onBaseUrlChange, onActivated }: Props
                 <Space direction="vertical" size={12} style={{ width: "100%" }}>
                   <div>
                     <Typography.Text strong>后端地址</Typography.Text>
-                    <Input value={baseUrl} onChange={(e) => onBaseUrlChange(e.target.value)} placeholder="http://127.0.0.1:10010" />
+                    <Input value={draftBaseUrl} onChange={(e) => setDraftBaseUrl(e.target.value)} placeholder="http://127.0.0.1:10010" />
                   </div>
                   <div>
                     <Typography.Text strong>首次启动口令</Typography.Text>

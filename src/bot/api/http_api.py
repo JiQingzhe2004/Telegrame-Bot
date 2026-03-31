@@ -13,6 +13,7 @@ from bot.runtime_manager import RuntimeManager
 from bot.storage.repo import BotRepository
 from bot.system_config import ConfigService
 from bot.telegram.admin_service import TelegramAdminService
+from bot.version import get_backend_version
 
 
 class ApiEnvelope(BaseModel):
@@ -38,7 +39,8 @@ class Services:
 
 
 def create_http_app(services: Services, webhook_path: str) -> FastAPI:
-    app = FastAPI(title="telegram-moderator-bot-api", version="2.0.0")
+    backend_version = get_backend_version()
+    app = FastAPI(title="telegram-moderator-bot-api", version=backend_version)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(services.cors_origins),
@@ -73,11 +75,18 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
         return {
             "status": state["state"],
             "config_complete": state["config_complete"],
+            "backend_version": backend_version,
         }
 
     @app.get("/api/v1/runtime/state")
     async def runtime_state() -> ApiEnvelope:
-        return ApiEnvelope(ok=True, data=services.runtime_manager.runtime_state())
+        return ApiEnvelope(
+            ok=True,
+            data={
+                **services.runtime_manager.runtime_state(),
+                "backend_version": backend_version,
+            },
+        )
 
     @app.get("/api/v1/setup/state")
     async def setup_state() -> ApiEnvelope:
@@ -87,7 +96,26 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
             data={
                 "state": runtime["state"],
                 "config_complete": runtime["config_complete"],
+                "backend_version": backend_version,
                 "runtime_config": services.runtime_manager.get_runtime_config_public(),
+            },
+        )
+
+    @app.post("/api/v1/auth/login")
+    async def auth_login(body: dict[str, str]) -> ApiEnvelope:
+        if not services.runtime_manager.is_active():
+            raise HTTPException(status_code=409, detail="setup_required")
+        token = body.get("admin_token", "").strip()
+        if not token:
+            raise HTTPException(status_code=400, detail="missing_admin_token")
+        if not services.runtime_manager.verify_admin_token(token):
+            raise HTTPException(status_code=401, detail="unauthorized")
+        return ApiEnvelope(
+            ok=True,
+            data={
+                "authenticated": True,
+                "backend_version": backend_version,
+                "runtime_state": services.runtime_manager.runtime_state(),
             },
         )
 
