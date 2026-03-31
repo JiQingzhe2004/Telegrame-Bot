@@ -494,3 +494,57 @@ class BotRepository:
                 (chat_id, limit),
             ).fetchall()
             return [dict(r) for r in rows]
+
+    def list_welcome_templates(self, chat_id: int, hour: int | None = None, chat_type: str | None = None) -> list[dict]:
+        """取有效欢迎语模板，按 time_start/time_end 和 chat_type 过滤，随机权重排序"""
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, template, time_start, time_end, chat_type, weight
+                FROM welcome_templates
+                WHERE (chat_id = ? OR chat_id IS NULL)
+                  AND enabled = 1
+                ORDER BY RANDOM() * weight DESC
+                """,
+                (chat_id,),
+            ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            if hour is not None and d["time_start"] is not None and d["time_end"] is not None:
+                t_start = int(d["time_start"])
+                t_end = int(d["time_end"])
+                if t_start <= t_end:
+                    if not (t_start <= hour < t_end):
+                        continue
+                else:  # 跨午夜
+                    if not (hour >= t_start or hour < t_end):
+                        continue
+            if chat_type and d["chat_type"] and d["chat_type"] != chat_type:
+                continue
+            result.append(d)
+        return result
+
+    def add_welcome_template(
+        self,
+        chat_id: int | None,
+        template: str,
+        time_start: int | None = None,
+        time_end: int | None = None,
+        chat_type: str | None = None,
+        weight: int = 1,
+    ) -> int:
+        with self.db.connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO welcome_templates(chat_id, template, time_start, time_end, chat_type, weight, enabled, created_at)
+                VALUES(?, ?, ?, ?, ?, ?, 1, ?)
+                """,
+                (chat_id, template, time_start, time_end, chat_type, weight, to_iso(utc_now())),
+            )
+            return int(cur.lastrowid)
+
+    def delete_welcome_template(self, template_id: int) -> bool:
+        with self.db.connect() as conn:
+            cur = conn.execute("DELETE FROM welcome_templates WHERE id = ?", (template_id,))
+            return cur.rowcount > 0

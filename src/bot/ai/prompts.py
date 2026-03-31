@@ -37,11 +37,25 @@ def build_welcome_system_prompt() -> str:
     )
 
 
-def build_welcome_user_prompt(chat_title: str, user_display_name: str, language: str, template: str) -> str:
+def build_welcome_user_prompt(
+    chat_title: str,
+    user_display_name: str,
+    language: str,
+    template: str,
+    *,
+    time_of_day: str | None = None,
+    chat_type: str | None = None,
+) -> str:
+    extra = ""
+    if time_of_day:
+        extra += f"time_of_day={time_of_day}\n"
+    if chat_type:
+        extra += f"chat_type={chat_type}\n"
     return (
         f"language={language}\n"
         f"chat_title={chat_title}\n"
         f"user_display_name={user_display_name}\n"
         f"template_hint={template}\n"
+        f"{extra}"
         "requirements=<=60 Chinese chars, include user_display_name once, remind reading group rules politely\n"
     )

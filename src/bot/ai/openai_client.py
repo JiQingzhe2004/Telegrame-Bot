@@ -121,7 +121,7 @@ class OpenAiModerator:
         logger.info("ai_classified model=%s level=%s category=%s", model, decision.level, decision.category)
         return decision
 
-    async def generate_welcome(self, *, chat_title: str, user_display_name: str, language: str, template: str) -> str:
+    async def generate_welcome(self, *, chat_title: str, user_display_name: str, language: str, template: str, time_of_day: str | None = None, chat_type: str | None = None) -> str:
         if not self.client:
             raise RuntimeError("OPENAI_API_KEY is not configured")
         model = self.conf.low_risk_model or self.conf.high_risk_model
@@ -136,6 +136,8 @@ class OpenAiModerator:
                         user_display_name=user_display_name,
                         language=language,
                         template=template,
+                        time_of_day=time_of_day,
+                        chat_type=chat_type,
                     ),
                 },
             ],

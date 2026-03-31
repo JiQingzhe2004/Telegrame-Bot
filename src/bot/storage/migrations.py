@@ -146,6 +146,24 @@ MIGRATIONS: list[Migration] = [
         CREATE INDEX IF NOT EXISTS idx_setup_sessions_kind ON setup_sessions(kind);
         """,
     ),
+
+    Migration(
+        version="0004_welcome_templates",
+        sql="""
+        CREATE TABLE IF NOT EXISTS welcome_templates(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          chat_id INTEGER,
+          template TEXT NOT NULL,
+          time_start INTEGER,
+          time_end INTEGER,
+          chat_type TEXT,
+          weight INTEGER NOT NULL DEFAULT 1,
+          enabled INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_wt_chat ON welcome_templates(chat_id);
+        """,
+    ),
     Migration(
         version="0003_join_verification",
         sql="""

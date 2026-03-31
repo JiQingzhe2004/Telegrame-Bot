@@ -53,14 +53,38 @@ def _render_welcome_template(template: str, user_name: str, chat_title: str | No
     return base.replace("{user}", user_name).replace("{chat}", chat_title or "本群")
 
 
+def _get_time_of_day(hour: int) -> str:
+    if 5 <= hour < 12:
+        return "morning"
+    if 12 <= hour < 18:
+        return "afternoon"
+    if 18 <= hour < 22:
+        return "evening"
+    return "night"
+
+
 async def _build_welcome_text(
     context: ContextTypes.DEFAULT_TYPE,
     runtime_config: RuntimeConfig,
     *,
+    chat_id: int,
     chat_title: str | None,
+    chat_type: str | None,
     user_name: str,
 ) -> str:
-    fallback = _render_welcome_template(runtime_config.join_welcome_template, user_name, chat_title)
+    from datetime import datetime, timezone as _tz
+    repo: BotRepository | None = context.application.bot_data.get("repo")
+    now_hour = datetime.now(tz=_tz.utc).hour
+    time_of_day = _get_time_of_day(now_hour)
+
+    # 多模板轮换：从数据库取匹配时段/群类型的模板
+    chosen_template = runtime_config.join_welcome_template
+    if repo is not None:
+        templates = repo.list_welcome_templates(chat_id, hour=now_hour, chat_type=chat_type)
+        if templates:
+            chosen_template = templates[0]["template"]
+
+    fallback = _render_welcome_template(chosen_template, user_name, chat_title)
     if not runtime_config.join_welcome_use_ai:
         return fallback
     ai_moderator = context.application.bot_data.get("ai_moderator")
@@ -71,7 +95,9 @@ async def _build_welcome_text(
             chat_title=chat_title or "群聊",
             user_display_name=user_name,
             language="zh",
-            template=runtime_config.join_welcome_template,
+            template=chosen_template,
+            time_of_day=time_of_day,
+            chat_type=chat_type,
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("ai welcome generation failed: %s", exc)
@@ -238,7 +264,9 @@ async def on_join_verify_callback(update: Update, context: ContextTypes.DEFAULT_
             welcome = await _build_welcome_text(
                 context,
                 runtime_config,
+                chat_id=chat_id,
                 chat_title=update.effective_chat.title if update.effective_chat else None,
+                chat_type=update.effective_chat.type if update.effective_chat else None,
                 user_name=query.from_user.full_name,
             )
             await context.bot.send_message(chat_id=chat_id, text=welcome)
@@ -321,7 +349,7 @@ async def on_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not runtime_config.join_verification_enabled:
             if runtime_config.join_welcome_enabled:
                 welcome = await _build_welcome_text(
-                    context, runtime_config, chat_title=chat.title, user_name=display_name
+                    context, runtime_config, chat_id=chat.id, chat_title=chat.title, chat_type=chat.type, user_name=display_name
                 )
                 await msg.reply_text(welcome)
             continue
@@ -347,7 +375,7 @@ async def on_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE
                     logger.warning("save verification log failed: %s", exc)
                 if runtime_config.join_welcome_enabled:
                     welcome = await _build_welcome_text(
-                        context, runtime_config, chat_title=chat.title, user_name=display_name
+                        context, runtime_config, chat_id=chat.id, chat_title=chat.title, chat_type=chat.type, user_name=display_name
                     )
                     await msg.reply_text(welcome)
                 continue
