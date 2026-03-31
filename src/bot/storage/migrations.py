@@ -101,6 +101,15 @@ MIGRATIONS: list[Migration] = [
           created_at TEXT,
           PRIMARY KEY(chat_id, word)
         );
+        CREATE TABLE IF NOT EXISTS blacklists(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          chat_id INTEGER NOT NULL,
+          type TEXT NOT NULL,
+          value TEXT NOT NULL,
+          added_by INTEGER,
+          created_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_blacklists_chat ON blacklists(chat_id, type);
         CREATE TABLE IF NOT EXISTS appeals(
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           chat_id INTEGER,
