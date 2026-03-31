@@ -3,6 +3,7 @@ export type ChatSettings = {
   mode: "strict" | "balanced" | "relaxed";
   ai_enabled: boolean;
   ai_threshold: number;
+  allow_admin_self_test: boolean;
   action_policy: string;
   rate_limit_policy: string;
   language: string;

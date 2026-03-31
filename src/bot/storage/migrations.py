@@ -243,6 +243,12 @@ MIGRATIONS: list[Migration] = [
         );
         """,
     ),
+    Migration(
+        version="0007_admin_self_test",
+        sql="""
+        ALTER TABLE chat_settings ADD COLUMN allow_admin_self_test INTEGER NOT NULL DEFAULT 0;
+        """,
+    ),
 ]
 
 

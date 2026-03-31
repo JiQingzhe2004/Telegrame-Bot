@@ -40,6 +40,7 @@ class ChatSettings:
     mode: str = "balanced"
     ai_enabled: bool = True
     ai_threshold: float = 0.75
+    allow_admin_self_test: bool = False
     action_policy: str = "progressive"
     rate_limit_policy: str = "default"
     language: str = "zh"

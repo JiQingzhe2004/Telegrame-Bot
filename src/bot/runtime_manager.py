@@ -46,6 +46,7 @@ class RuntimeManager:
             "mode": conf.default_mode,
             "ai_enabled": conf.default_ai_enabled,
             "ai_threshold": conf.default_ai_threshold,
+            "allow_admin_self_test": False,
             "action_policy": conf.default_action_policy,
             "rate_limit_policy": conf.default_rate_limit_policy,
             "language": conf.default_language,

@@ -35,8 +35,8 @@ class BotRepository:
             )
             conn.execute(
                 """
-                INSERT INTO chat_settings(chat_id, mode, ai_enabled, ai_threshold, action_policy, rate_limit_policy, language, level3_mute_seconds, updated_at)
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO chat_settings(chat_id, mode, ai_enabled, ai_threshold, allow_admin_self_test, action_policy, rate_limit_policy, language, level3_mute_seconds, updated_at)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(chat_id) DO NOTHING
                 """,
                 (
@@ -44,6 +44,7 @@ class BotRepository:
                     self.defaults["mode"],
                     1 if self.defaults["ai_enabled"] else 0,
                     self.defaults["ai_threshold"],
+                    1 if self.defaults.get("allow_admin_self_test", False) else 0,
                     self.defaults["action_policy"],
                     self.defaults["rate_limit_policy"],
                     self.defaults["language"],
@@ -75,6 +76,7 @@ class BotRepository:
             mode=row["mode"],
             ai_enabled=bool(row["ai_enabled"]),
             ai_threshold=float(row["ai_threshold"]),
+            allow_admin_self_test=bool(row["allow_admin_self_test"]),
             action_policy=row["action_policy"],
             rate_limit_policy=row["rate_limit_policy"],
             language=row["language"],
@@ -87,12 +89,13 @@ class BotRepository:
         with self.db.connect() as conn:
             conn.execute(
                 """
-                INSERT INTO chat_settings(chat_id, mode, ai_enabled, ai_threshold, action_policy, rate_limit_policy, language, level3_mute_seconds, updated_at)
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO chat_settings(chat_id, mode, ai_enabled, ai_threshold, allow_admin_self_test, action_policy, rate_limit_policy, language, level3_mute_seconds, updated_at)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(chat_id) DO UPDATE SET
                   mode=excluded.mode,
                   ai_enabled=excluded.ai_enabled,
                   ai_threshold=excluded.ai_threshold,
+                  allow_admin_self_test=excluded.allow_admin_self_test,
                   action_policy=excluded.action_policy,
                   rate_limit_policy=excluded.rate_limit_policy,
                   language=excluded.language,
@@ -104,6 +107,7 @@ class BotRepository:
                     new["mode"],
                     1 if new["ai_enabled"] else 0,
                     float(new["ai_threshold"]),
+                    1 if new["allow_admin_self_test"] else 0,
                     new["action_policy"],
                     new["rate_limit_policy"],
                     new["language"],

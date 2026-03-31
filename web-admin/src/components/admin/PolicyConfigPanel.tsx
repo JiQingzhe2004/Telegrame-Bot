@@ -10,7 +10,9 @@ type Props = {
 
 export function PolicyConfigPanel({ data, actions }: Props) {
   const settings = data.settings;
-  const [form] = Form.useForm<Pick<ChatSettings, "mode" | "ai_enabled" | "ai_threshold" | "level3_mute_seconds">>();
+  const [form] = Form.useForm<
+    Pick<ChatSettings, "mode" | "ai_enabled" | "ai_threshold" | "allow_admin_self_test" | "level3_mute_seconds">
+  >();
 
   useEffect(() => {
     if (!settings) return;
@@ -18,6 +20,7 @@ export function PolicyConfigPanel({ data, actions }: Props) {
       mode: settings.mode,
       ai_enabled: settings.ai_enabled,
       ai_threshold: settings.ai_threshold,
+      allow_admin_self_test: settings.allow_admin_self_test,
       level3_mute_seconds: settings.level3_mute_seconds,
     });
   }, [settings, form]);
@@ -45,6 +48,14 @@ export function PolicyConfigPanel({ data, actions }: Props) {
           </Form.Item>
           <Form.Item label="AI 阈值" name="ai_threshold" rules={[{ required: true, message: "请填写阈值" }]}>
             <InputNumber min={0} max={1} step={0.01} style={{ width: 220 }} />
+          </Form.Item>
+          <Form.Item
+            label="管理员自测模式"
+            name="allow_admin_self_test"
+            valuePropName="checked"
+            extra="开启后，管理员消息也会进入 AI/审计链路，但不会执行真实删除、禁言、封禁。"
+          >
+            <Switch />
           </Form.Item>
           <Form.Item label="L3 禁言秒数" name="level3_mute_seconds" rules={[{ required: true, message: "请填写秒数" }]}>
             <InputNumber min={1} style={{ width: 220 }} />

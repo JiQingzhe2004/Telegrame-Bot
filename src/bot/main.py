@@ -33,6 +33,7 @@ async def async_main() -> None:
             "mode": runtime_conf.default_mode,
             "ai_enabled": runtime_conf.default_ai_enabled,
             "ai_threshold": runtime_conf.default_ai_threshold,
+            "allow_admin_self_test": False,
             "action_policy": runtime_conf.default_action_policy,
             "rate_limit_policy": runtime_conf.default_rate_limit_policy,
             "language": runtime_conf.default_language,

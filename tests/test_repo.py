@@ -16,6 +16,7 @@ def make_repo(path: Path) -> BotRepository:
             "mode": "balanced",
             "ai_enabled": True,
             "ai_threshold": 0.75,
+            "allow_admin_self_test": False,
             "action_policy": "progressive",
             "rate_limit_policy": "default",
             "language": "zh",
@@ -32,6 +33,7 @@ def test_repo_migration_and_basic_ops(tmp_path):
     )
     settings = repo.get_settings(1)
     assert settings.chat_id == 1
+    assert settings.allow_admin_self_test is False
     repo.add_list_item("blacklists", 1, "word", "spam")
     assert "spam" in repo.get_blacklist_words(1)
 
@@ -59,3 +61,11 @@ def test_repo_whitelist_table_and_lookup(tmp_path):
     repo = make_repo(tmp_path / "bot.db")
     repo.add_list_item("whitelists", 1, "user", "2")
     assert repo.is_whitelisted(1, 2, None) is True
+
+
+def test_repo_can_update_admin_self_test_setting(tmp_path):
+    repo = make_repo(tmp_path / "bot.db")
+    repo.upsert_chat(ChatRef(chat_id=1, type="supergroup", title="t"))
+    repo.update_settings(1, {"allow_admin_self_test": True})
+    settings = repo.get_settings(1)
+    assert settings.allow_admin_self_test is True

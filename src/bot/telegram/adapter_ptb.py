@@ -529,7 +529,9 @@ async def on_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     user = update.effective_user
     if user.is_bot:
         return
-    if await is_admin(context.bot, chat.id, user.id):
+    settings = repo.get_settings(chat.id)
+    admin_message = await is_admin(context.bot, chat.id, user.id)
+    if admin_message and not settings.allow_admin_self_test:
         return
 
     chat_ref = ChatRef(chat_id=chat.id, type=chat.type, title=chat.title)
@@ -542,7 +544,6 @@ async def on_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     )
     repo.upsert_chat_user(chat_ref, user_ref)
 
-    settings = repo.get_settings(chat.id)
     strike_score = repo.get_strike_score(chat.id, user.id)
     whitelist_hit = repo.is_whitelisted(chat.id, user.id, user.username)
     blacklist_words = repo.get_blacklist_words(chat.id)
@@ -564,7 +565,7 @@ async def on_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         user_id=user.id,
         date=msg.date,
         text=text,
-        meta={},
+        meta={"admin_self_test": admin_message},
     )
 
     redacted = redact_pii(text)
@@ -576,6 +577,24 @@ async def on_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         decision,
         ai_model=decision.ai_decision.raw.get("_model") if decision.ai_decision else None,
     )
+
+    if admin_message:
+        logger.info(
+            "admin_self_test_completed chat_id=%s user_id=%s level=%s action=%s ai_used=%s",
+            chat.id,
+            user.id,
+            decision.final_level,
+            decision.final_action,
+            decision.ai_used,
+        )
+        try:
+            await msg.reply_text(
+                f"管理员自测完成：level={decision.final_level}，action={decision.final_action}，"
+                f"ai_used={'yes' if decision.ai_used else 'no'}，confidence={decision.confidence:.2f}。未执行真实处置。"
+            )
+        except TelegramError as exc:
+            logger.warning("admin self test reply failed chat=%s user=%s err=%s", chat.id, user.id, exc)
+        return
 
     perms = await get_permission_snapshot(context.bot, chat.id)
     enforcement = await enforcer.apply(context.bot, message_ref, decision, perms)
