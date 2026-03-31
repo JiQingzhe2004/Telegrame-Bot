@@ -9,7 +9,13 @@ from bot.domain.moderation import PermissionSnapshot
 from bot.storage.db import Database
 from bot.storage.migrations import migrate
 from bot.storage.repo import BotRepository
-from bot.telegram.adapter_ptb import on_group_message, on_new_chat_members
+from bot.telegram.adapter_ptb import (
+    VERIFY_CALLBACK_PREFIX,
+    _verification_timeout,
+    on_group_message,
+    on_join_verify_callback,
+    on_new_chat_members,
+)
 from bot.telegram.commands import status_cmd
 from bot.utils.time import utc_now
 
@@ -202,3 +208,87 @@ def test_admin_self_test_runs_audit_but_skips_enforcement(tmp_path):
     audits = repo.list_audits(-100991)
     assert len(audits) == 1
     assert audits[0]["final_level"] == 2
+
+
+def test_join_verify_pass_cleans_up_messages_and_sends_welcome(tmp_path):
+    repo = make_repo(tmp_path)
+    query = SimpleNamespace(
+        data=f"{VERIFY_CALLBACK_PREFIX}-100123:42:ok",
+        from_user=SimpleNamespace(id=42, username="alice", full_name="Alice"),
+        answer=AsyncMock(),
+    )
+    context = SimpleNamespace(
+        application=SimpleNamespace(
+            bot_data={
+                "repo": repo,
+                "runtime_config": SimpleNamespace(
+                    join_verification_max_attempts=3,
+                    join_welcome_enabled=True,
+                    join_welcome_use_ai=False,
+                ),
+                "pending_join_verifications": {
+                    "-100123:42": {
+                        "verify_message_id": 200,
+                        "join_message_id": 100,
+                        "attempts": 0,
+                        "question_type": "button",
+                        "display_name": "Alice",
+                    }
+                },
+                "ai_moderator": None,
+            },
+            job_queue=None,
+        ),
+        bot=SimpleNamespace(
+            restrict_chat_member=AsyncMock(),
+            delete_message=AsyncMock(),
+            send_message=AsyncMock(),
+        ),
+    )
+    update = SimpleNamespace(
+        callback_query=query,
+        effective_chat=SimpleNamespace(id=-100123, title="测试群", type="supergroup"),
+    )
+
+    with patch("bot.telegram.adapter_ptb._build_welcome_text", new=AsyncMock(return_value="欢迎 Alice")):
+        asyncio.run(on_join_verify_callback(update, context))
+
+    query.answer.assert_awaited_once()
+    assert context.application.bot_data["pending_join_verifications"] == {}
+    assert context.bot.delete_message.await_count == 2
+    context.bot.send_message.assert_awaited_once_with(chat_id=-100123, text="欢迎 Alice")
+
+
+def test_join_verify_timeout_cleans_up_and_kicks_member(tmp_path):
+    repo = make_repo(tmp_path)
+    context = SimpleNamespace(
+        job=SimpleNamespace(data={"chat_id": -100124, "user_id": 43}),
+        application=SimpleNamespace(
+            bot_data={
+                "repo": repo,
+                "pending_join_verifications": {
+                    "-100124:43": {
+                        "verify_message_id": 201,
+                        "join_message_id": 101,
+                        "attempts": 1,
+                        "display_name": "Bob",
+                    }
+                },
+            },
+            job_queue=None,
+        ),
+        bot=SimpleNamespace(
+            delete_message=AsyncMock(),
+            ban_chat_member=AsyncMock(),
+            unban_chat_member=AsyncMock(),
+            send_message=AsyncMock(return_value=SimpleNamespace(message_id=301)),
+        ),
+    )
+
+    asyncio.run(_verification_timeout(context))
+
+    assert context.application.bot_data["pending_join_verifications"] == {}
+    assert context.bot.delete_message.await_count == 2
+    context.bot.ban_chat_member.assert_awaited_once()
+    context.bot.unban_chat_member.assert_awaited_once()
+    context.bot.send_message.assert_awaited_once_with(chat_id=-100124, text="Bob 未在限时内完成入群验证，已被移出群聊。")

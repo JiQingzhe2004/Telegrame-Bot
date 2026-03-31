@@ -40,6 +40,7 @@ from bot.telegram.inspector import register_inspection_job
 
 logger = logging.getLogger(__name__)
 VERIFY_CALLBACK_PREFIX = "join_verify:"
+VERIFY_NOTICE_TTL_SECONDS = 45
 
 
 def _pending_verifications(application: Application) -> dict[str, dict[str, Any]]:
@@ -48,6 +49,54 @@ def _pending_verifications(application: Application) -> dict[str, dict[str, Any]
         bucket = {}
         application.bot_data["pending_join_verifications"] = bucket
     return bucket
+
+
+async def _safe_delete_message(bot, chat_id: int, message_id: int | None) -> None:
+    if not message_id:
+        return
+    try:
+        await bot.delete_message(chat_id=chat_id, message_id=int(message_id))
+    except TelegramError as exc:
+        logger.warning("delete message failed chat=%s message=%s err=%s", chat_id, message_id, exc)
+
+
+async def _delete_message_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    data = context.job.data if context.job else None
+    if not isinstance(data, dict):
+        return
+    await _safe_delete_message(
+        context.bot,
+        int(data.get("chat_id", 0)),
+        int(data.get("message_id", 0)),
+    )
+
+
+async def _send_temporary_notice(
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    chat_id: int,
+    text: str,
+    ttl_seconds: int = VERIFY_NOTICE_TTL_SECONDS,
+) -> None:
+    notice = await context.bot.send_message(chat_id=chat_id, text=text)
+    if context.application.job_queue:
+        context.application.job_queue.run_once(
+            _delete_message_job,
+            when=ttl_seconds,
+            data={"chat_id": chat_id, "message_id": notice.message_id},
+            name=f"cleanup-notice-{chat_id}-{notice.message_id}",
+        )
+
+
+async def _cleanup_verification_messages(
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    chat_id: int,
+    entry: dict[str, Any] | None,
+) -> None:
+    payload = entry or {}
+    await _safe_delete_message(context.bot, chat_id, payload.get("verify_message_id"))
+    await _safe_delete_message(context.bot, chat_id, payload.get("join_message_id"))
 
 
 def _remember_group_chat(repo: BotRepository, chat: Chat) -> None:
@@ -169,6 +218,7 @@ async def _verification_timeout(context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     entry = store.pop(key, {}) or {}
     attempts = int(entry.get("attempts", 0))
+    display_name = str(entry.get("display_name") or user_id)
 
     repo: BotRepository | None = context.application.bot_data.get("repo")
     if repo:
@@ -185,12 +235,15 @@ async def _verification_timeout(context: ContextTypes.DEFAULT_TYPE) -> None:
             logger.warning("save verification log failed: %s", exc)
 
     try:
+        await _cleanup_verification_messages(context, chat_id=chat_id, entry=entry)
         await context.bot.ban_chat_member(
             chat_id=chat_id, user_id=user_id, until_date=utc_now() + timedelta(minutes=1)
         )
         await context.bot.unban_chat_member(chat_id=chat_id, user_id=user_id, only_if_banned=True)
-        await context.bot.send_message(
-            chat_id=chat_id, text=f"用户 {user_id} 未在限时内完成入群验证，已移出群聊。"
+        await _send_temporary_notice(
+            context,
+            chat_id=chat_id,
+            text=f"{display_name} 未在限时内完成入群验证，已被移出群聊。",
         )
     except TelegramError as exc:
         logger.warning(
@@ -268,10 +321,7 @@ async def on_join_verify_callback(update: Update, context: ContextTypes.DEFAULT_
             logger.warning("save verification log failed: %s", exc)
 
         await query.answer("验证成功")
-        try:
-            await query.edit_message_text(f"验证通过，欢迎 {query.from_user.full_name}。")
-        except TelegramError:
-            pass
+        await _cleanup_verification_messages(context, chat_id=chat_id, entry=entry)
 
         if runtime_config.join_welcome_enabled:
             welcome = await _build_welcome_text(
@@ -302,12 +352,7 @@ async def on_join_verify_callback(update: Update, context: ContextTypes.DEFAULT_
                 logger.warning("save verification log failed: %s", exc)
             await query.answer("验证失败次数过多，已移出群聊。", show_alert=True)
             try:
-                await query.edit_message_text(
-                    f"{query.from_user.full_name} 验证失败次数过多，已被移出群聊。"
-                )
-            except TelegramError:
-                pass
-            try:
+                await _cleanup_verification_messages(context, chat_id=chat_id, entry=entry)
                 await context.bot.ban_chat_member(
                     chat_id=chat_id,
                     user_id=user_id,
@@ -315,6 +360,11 @@ async def on_join_verify_callback(update: Update, context: ContextTypes.DEFAULT_
                 )
                 await context.bot.unban_chat_member(
                     chat_id=chat_id, user_id=user_id, only_if_banned=True
+                )
+                await _send_temporary_notice(
+                    context,
+                    chat_id=chat_id,
+                    text=f"{query.from_user.full_name} 验证失败次数过多，已被移出群聊。",
                 )
             except TelegramError as exc:
                 logger.warning(
@@ -474,10 +524,12 @@ async def on_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE
             key = f"{chat.id}:{joined.id}"
             _pending_verifications(context.application)[key] = {
                 "verify_message_id": verify_msg.message_id,
+                "join_message_id": msg.message_id,
                 "attempts": 0,
                 "question_id": question_data["id"],
                 "answer_index": question_data["answer_index"],
                 "question_type": "quiz",
+                "display_name": display_name,
             }
         else:
             # button 模式
@@ -494,10 +546,12 @@ async def on_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE
             key = f"{chat.id}:{joined.id}"
             _pending_verifications(context.application)[key] = {
                 "verify_message_id": verify_msg.message_id,
+                "join_message_id": msg.message_id,
                 "attempts": 0,
                 "question_id": None,
                 "answer_index": None,
                 "question_type": "button",
+                "display_name": display_name,
             }
 
         if context.application.job_queue:
