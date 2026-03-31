@@ -1,0 +1,21 @@
+services:
+  telegram-moderator-bot:
+    image: ghcr.io/jiqingzhe2004/telegrame-bot:${IMAGE_TAG:-latest}
+    container_name: telegram-moderator-bot
+    restart: unless-stopped
+    ports:
+      - "10010:10010"
+    environment:
+      LOG_LEVEL: INFO
+      DB_PATH: /app/data/bot.db
+      HTTP_API_HOST: 0.0.0.0
+      HTTP_API_PORT: 10010
+      WEBHOOK_HOST: 0.0.0.0
+      WEBHOOK_PORT: 10010
+      WEB_ADMIN_DIST_PATH: /app/web-admin/dist
+    volumes:
+      - telegram_moderator_bot_data:/app/data
+
+volumes:
+  telegram_moderator_bot_data:
+    name: telegram-moderator-bot-data

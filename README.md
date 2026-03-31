@@ -56,6 +56,27 @@ python -m bot.main
 curl http://127.0.0.1:10010/healthz
 ```
 
+## Docker 部署
+
+仓库现在自带官方 [`docker-compose.yml`](/Users/jiqingzhe/Desktop/Telegrame-Bot/docker-compose.yml)，默认会把数据持久化到 Docker Volume `telegram-moderator-bot-data`，更新镜像后不会重新进入首次向导。
+
+```powershell
+docker compose up -d
+```
+
+升级到最新镜像：
+
+```powershell
+docker compose pull
+docker compose up -d
+```
+
+如需固定版本，先按你当前 shell 设置 `IMAGE_TAG=v0.1.1`，再执行 `docker compose up -d`。
+
+注意：
+- 不要执行 `docker compose down -v`，否则会删掉数据卷
+- 业务配置仍然保存在数据库，不在镜像里
+
 ## 前端交付方式
 
 - 默认内置：后端直接托管 `web-admin/dist`，访问根路径即可。

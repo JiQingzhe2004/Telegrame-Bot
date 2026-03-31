@@ -106,6 +106,8 @@ jobs:
           cp -R web-admin/dist release-src/web-admin/dist
           cp -R docs release-src/docs
           cp README.md release-src/README.md
+          cp Dockerfile release-src/Dockerfile
+          cp docker-compose.yml release-src/docker-compose.yml
           cp .env.example release-src/.env.example
           cp pyproject.toml release-src/pyproject.toml
           if [ -f DEVELOPMENT.md ]; then cp DEVELOPMENT.md release-src/DEVELOPMENT.md; fi

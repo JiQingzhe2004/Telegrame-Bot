@@ -10,6 +10,8 @@ WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV DB_PATH=/app/data/bot.db
+ENV WEB_ADMIN_DIST_PATH=/app/web-admin/dist
 
 COPY pyproject.toml README.md ./
 COPY src ./src
@@ -19,6 +21,10 @@ RUN python -m pip install --upgrade pip \
 COPY .env.example ./.env.example
 COPY docs ./docs
 COPY --from=frontend-build /app/web-admin/dist ./web-admin/dist
+
+RUN mkdir -p /app/data
+
+VOLUME ["/app/data"]
 
 EXPOSE 10010
 
