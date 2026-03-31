@@ -36,6 +36,7 @@ from bot.telegram.commands import (
 from bot.telegram.permissions import get_permission_snapshot, is_admin
 from bot.utils.time import utc_now
 from bot.utils.rate_limit import RaidDetector
+from bot.telegram.inspector import register_inspection_job
 
 logger = logging.getLogger(__name__)
 VERIFY_CALLBACK_PREFIX = "join_verify:"
@@ -595,4 +596,5 @@ def build_application(
     app.add_handler(CallbackQueryHandler(on_join_verify_callback, pattern=f"^{VERIFY_CALLBACK_PREFIX}"))
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, on_new_chat_members))
     app.add_handler(MessageHandler(filters.ALL & (~filters.COMMAND), on_group_message))
+    register_inspection_job(app)
     return app
