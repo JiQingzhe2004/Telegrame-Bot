@@ -44,6 +44,9 @@ const permissionMap: Record<string, string> = {
   can_promote_members: "管理管理员（提权/降权）",
   can_manage_video_chats: "管理视频聊天",
   can_manage_chat: "管理聊天",
+  can_post_stories: "发布动态",
+  can_edit_stories: "编辑动态",
+  can_delete_stories: "删除动态",
 };
 
 export function translateReason(reason?: string | null): string {

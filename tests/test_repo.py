@@ -51,6 +51,8 @@ def test_repo_migration_and_basic_ops(tmp_path):
     repo.save_decision(msg, decision)
     audits = repo.list_audits(1)
     assert len(audits) == 1
+    assert audits[0]["ai_status"] == "skipped"
+    assert audits[0]["ai_error"] is None
     chats = repo.list_chats()
     assert any(int(c["chat_id"]) == 1 for c in chats)
     members = repo.list_chat_members(1)

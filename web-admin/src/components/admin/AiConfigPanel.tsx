@@ -1,11 +1,12 @@
-import { useEffect } from "react";
-import { Alert, Button, Card, Col, Form, Input, InputNumber, Row, Select, Space, Switch, Tag } from "antd";
-import type { RuntimeConfigPublic } from "@/lib/api";
+import { useEffect, useState } from "react";
+import { Alert, Button, Card, Col, Descriptions, Form, Input, InputNumber, Row, Select, Space, Switch, Tag, Typography } from "antd";
+import type { ModerationAiTestResult, RuntimeConfigPublic, WelcomeAiTestResult } from "@/lib/api";
 
 type Props = {
   config?: RuntimeConfigPublic;
   loading: boolean;
   saving: boolean;
+  chatId?: string;
   onSave: (payload: {
     openai_api_key?: string;
     openai_base_url?: string;
@@ -21,10 +22,20 @@ type Props = {
     webhook_public_url?: string;
     webhook_path?: string;
   }) => Promise<void>;
+  onTestModeration: (text: string) => Promise<ModerationAiTestResult>;
+  onTestWelcome: (userDisplayName: string) => Promise<WelcomeAiTestResult>;
 };
 
-export function AiConfigPanel({ config, loading, saving, onSave }: Props) {
+export function AiConfigPanel({ config, loading, saving, chatId, onSave, onTestModeration, onTestWelcome }: Props) {
   const [form] = Form.useForm();
+  const [moderationText, setModerationText] = useState("这是一条 AI 审计测试消息。");
+  const [welcomeUserDisplayName, setWelcomeUserDisplayName] = useState("测试用户");
+  const [testingModeration, setTestingModeration] = useState(false);
+  const [testingWelcome, setTestingWelcome] = useState(false);
+  const [moderationResult, setModerationResult] = useState<ModerationAiTestResult | null>(null);
+  const [welcomeResult, setWelcomeResult] = useState<WelcomeAiTestResult | null>(null);
+  const [moderationError, setModerationError] = useState("");
+  const [welcomeError, setWelcomeError] = useState("");
 
   useEffect(() => {
     if (!config) return;
@@ -45,6 +56,38 @@ export function AiConfigPanel({ config, loading, saving, onSave }: Props) {
     });
   }, [config, form]);
 
+  const canTest = Boolean(chatId);
+
+  const handleModerationTest = async () => {
+    if (!moderationText.trim()) return;
+    setTestingModeration(true);
+    setModerationError("");
+    try {
+      const result = await onTestModeration(moderationText.trim());
+      setModerationResult(result);
+    } catch (error) {
+      setModerationResult(null);
+      setModerationError(error instanceof Error ? error.message : "AI 审计测试失败");
+    } finally {
+      setTestingModeration(false);
+    }
+  };
+
+  const handleWelcomeTest = async () => {
+    if (!welcomeUserDisplayName.trim()) return;
+    setTestingWelcome(true);
+    setWelcomeError("");
+    try {
+      const result = await onTestWelcome(welcomeUserDisplayName.trim());
+      setWelcomeResult(result);
+    } catch (error) {
+      setWelcomeResult(null);
+      setWelcomeError(error instanceof Error ? error.message : "欢迎语测试失败");
+    } finally {
+      setTestingWelcome(false);
+    }
+  };
+
   return (
     <Card title="AI 配置" loading={loading}>
       <Space direction="vertical" style={{ width: "100%" }} size={16}>
@@ -53,6 +96,7 @@ export function AiConfigPanel({ config, loading, saving, onSave }: Props) {
           showIcon
           message="这里保存后会自动热生效，无需重启进程。Key 为空时表示不改动已有值。"
         />
+        {!canTest ? <Alert type="warning" showIcon message="未选择 Chat，暂时无法发起真实 AI 测试。" /> : null}
         <Row gutter={16}>
           <Col xs={24} md={12}>
             <Tag color="blue">当前运行模式: {config?.run_mode ?? "-"}</Tag>
@@ -175,6 +219,59 @@ export function AiConfigPanel({ config, loading, saving, onSave }: Props) {
             保存 AI 配置并热生效
           </Button>
         </Form>
+        <Row gutter={[16, 16]}>
+          <Col xs={24} xl={12}>
+            <Card size="small" title="消息审计测试" extra={chatId ? <Tag color="blue">Chat {chatId}</Tag> : null}>
+              <Space direction="vertical" size={12} style={{ width: "100%" }}>
+                <Typography.Text type="secondary">输入一段消息，点击后会真实请求当前 AI 审计模型。</Typography.Text>
+                <Input.TextArea rows={4} value={moderationText} onChange={(e) => setModerationText(e.target.value)} />
+                <Button type="primary" loading={testingModeration} disabled={!canTest || !moderationText.trim()} onClick={() => void handleModerationTest()}>
+                  真实请求一次
+                </Button>
+                {moderationError ? <Alert type="error" showIcon message={moderationError} /> : null}
+                {moderationResult ? (
+                  <Descriptions bordered size="small" column={1}>
+                    <Descriptions.Item label="开关状态">{moderationResult.chat_ai_enabled ? "当前聊天 AI 已开启" : "当前聊天 AI 已关闭（本次仍已强制实测）"}</Descriptions.Item>
+                    <Descriptions.Item label="模型">{moderationResult.model || "-"}</Descriptions.Item>
+                    <Descriptions.Item label="分类">{moderationResult.category}</Descriptions.Item>
+                    <Descriptions.Item label="等级 / 动作">
+                      L{moderationResult.level} / {moderationResult.suggested_action}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="置信度">{moderationResult.confidence.toFixed(2)}</Descriptions.Item>
+                    <Descriptions.Item label="耗时">{moderationResult.latency_ms} ms</Descriptions.Item>
+                    <Descriptions.Item label="原因">{moderationResult.reasons.join("；") || "-"}</Descriptions.Item>
+                  </Descriptions>
+                ) : null}
+              </Space>
+            </Card>
+          </Col>
+          <Col xs={24} xl={12}>
+            <Card size="small" title="欢迎语测试" extra={chatId ? <Tag color="purple">Chat {chatId}</Tag> : null}>
+              <Space direction="vertical" size={12} style={{ width: "100%" }}>
+                <Typography.Text type="secondary">输入一个用户名，点击后会真实请求当前欢迎语 AI。</Typography.Text>
+                <Input value={welcomeUserDisplayName} onChange={(e) => setWelcomeUserDisplayName(e.target.value)} />
+                <Button type="primary" loading={testingWelcome} disabled={!canTest || !welcomeUserDisplayName.trim()} onClick={() => void handleWelcomeTest()}>
+                  真实请求一次
+                </Button>
+                {welcomeError ? <Alert type="error" showIcon message={welcomeError} /> : null}
+                {welcomeResult ? (
+                  <Descriptions bordered size="small" column={1}>
+                    <Descriptions.Item label="欢迎语开关">
+                      {welcomeResult.join_welcome_enabled ? "已开启" : "已关闭（本次仍已强制实测）"}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="欢迎语 AI">
+                      {welcomeResult.join_welcome_use_ai ? "已开启" : "已关闭（本次仍已强制实测）"}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="模型">{welcomeResult.model}</Descriptions.Item>
+                    <Descriptions.Item label="耗时">{welcomeResult.latency_ms} ms</Descriptions.Item>
+                    <Descriptions.Item label="模板">{welcomeResult.template}</Descriptions.Item>
+                    <Descriptions.Item label="结果">{welcomeResult.text}</Descriptions.Item>
+                  </Descriptions>
+                ) : null}
+              </Space>
+            </Card>
+          </Col>
+        </Row>
       </Space>
     </Card>
   );

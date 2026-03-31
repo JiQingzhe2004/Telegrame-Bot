@@ -86,6 +86,8 @@ class ModerationDecision:
     ai_used: bool
     ai_decision: AiDecision | None
     confidence: float
+    ai_status: Literal["skipped", "success", "failed"] = "skipped"
+    ai_error: str | None = None
     duration_seconds: int | None = None
 
 

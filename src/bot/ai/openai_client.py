@@ -31,6 +31,12 @@ class AiRuntimeConfig:
     timeout_seconds: int
 
 
+@dataclass(frozen=True)
+class AiWelcomeResult:
+    model: str
+    text: str
+
+
 def _coerce(data: dict[str, Any]) -> AiDecision:
     category = str(data.get("category", "other"))
     if category not in ALLOWED_CATEGORY:
@@ -123,6 +129,26 @@ class OpenAiModerator:
         return decision
 
     async def generate_welcome(self, *, chat_title: str, user_display_name: str, language: str, template: str, time_of_day: str | None = None, chat_type: str | None = None) -> str:
+        result = await self.generate_welcome_result(
+            chat_title=chat_title,
+            user_display_name=user_display_name,
+            language=language,
+            template=template,
+            time_of_day=time_of_day,
+            chat_type=chat_type,
+        )
+        return result.text
+
+    async def generate_welcome_result(
+        self,
+        *,
+        chat_title: str,
+        user_display_name: str,
+        language: str,
+        template: str,
+        time_of_day: str | None = None,
+        chat_type: str | None = None,
+    ) -> AiWelcomeResult:
         if not self.client:
             raise RuntimeError("OPENAI_API_KEY is not configured")
         model = self.conf.low_risk_model or self.conf.high_risk_model
@@ -150,4 +176,4 @@ class OpenAiModerator:
         if len(text) > 180:
             text = text[:180].strip()
         logger.info("ai_welcome_generated model=%s", model)
-        return text
+        return AiWelcomeResult(model=model, text=text)

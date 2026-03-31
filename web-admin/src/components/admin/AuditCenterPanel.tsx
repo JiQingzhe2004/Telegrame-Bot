@@ -18,6 +18,16 @@ export function AuditCenterPanel({ data }: Props) {
           { title: "ID", dataIndex: "id", width: 80, render: (id: number) => `#${id}` },
           { title: "用户", dataIndex: "user_id", width: 120 },
           {
+            title: "AI 状态",
+            dataIndex: "ai_status",
+            width: 120,
+            render: (status: "skipped" | "success" | "failed") => {
+              if (status === "success") return <Tag color="success">成功</Tag>;
+              if (status === "failed") return <Tag color="error">失败</Tag>;
+              return <Tag>跳过</Tag>;
+            },
+          },
+          {
             title: "等级",
             dataIndex: "final_level",
             width: 110,
@@ -29,6 +39,12 @@ export function AuditCenterPanel({ data }: Props) {
             },
           },
           { title: "规则/AI", dataIndex: "rule_hit", ellipsis: true },
+          {
+            title: "AI 错误",
+            dataIndex: "ai_error",
+            ellipsis: true,
+            render: (value: string | null) => value || "-",
+          },
           { title: "置信度", dataIndex: "confidence", width: 100, render: (v: number) => Number(v).toFixed(2) },
           { title: "时间", dataIndex: "created_at", width: 180, render: (value: string) => formatTime(value) },
         ]}

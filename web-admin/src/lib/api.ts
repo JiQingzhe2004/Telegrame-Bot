@@ -71,10 +71,32 @@ export type AuditRecord = {
   user_id: number;
   rule_hit: string;
   ai_used: number;
+  ai_status: "skipped" | "success" | "failed";
+  ai_error: string | null;
   ai_model: string | null;
   final_level: number;
   confidence: number;
   created_at: string;
+};
+
+export type ModerationAiTestResult = {
+  chat_ai_enabled: boolean;
+  model: string | null;
+  category: string;
+  level: number;
+  confidence: number;
+  suggested_action: string;
+  reasons: string[];
+  latency_ms: number;
+};
+
+export type WelcomeAiTestResult = {
+  join_welcome_enabled: boolean;
+  join_welcome_use_ai: boolean;
+  model: string;
+  text: string;
+  template: string;
+  latency_ms: number;
 };
 
 export type EnforcementRecord = {
@@ -369,6 +391,22 @@ export class ApiClient {
   listAudits(chatId: string, adminToken: string, limit = 100) {
     return this.request<AuditRecord[]>(`/api/v1/chats/${chatId}/audits?limit=${limit}`, {
       headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  testModerationAi(chatId: string, adminToken: string, text: string) {
+    return this.request<ModerationAiTestResult>(`/api/v1/chats/${chatId}/ai-test/moderation`, {
+      method: "POST",
+      headers: this.adminHeaders(adminToken),
+      body: JSON.stringify({ text }),
+    });
+  }
+
+  testWelcomeAi(chatId: string, adminToken: string, userDisplayName: string) {
+    return this.request<WelcomeAiTestResult>(`/api/v1/chats/${chatId}/ai-test/welcome`, {
+      method: "POST",
+      headers: this.adminHeaders(adminToken),
+      body: JSON.stringify({ user_display_name: userDisplayName }),
     });
   }
 

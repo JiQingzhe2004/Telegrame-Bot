@@ -44,7 +44,7 @@ async def _check_bot_permissions(bot: Bot, chat_id: int) -> list[str]:
 
 
 def _calc_ai_timeout_rate(repo: BotRepository, lookback_minutes: int) -> float:
-    """计算最近 N 分钟内 AI 超时率（ai_used=1 且 final_level=0 的比例近似）"""
+    """计算最近 N 分钟内 AI 失败率。"""
     try:
         since = utc_now() - timedelta(minutes=lookback_minutes)
         from bot.utils.time import to_iso
@@ -55,9 +55,8 @@ def _calc_ai_timeout_rate(repo: BotRepository, lookback_minutes: int) -> float:
             ).fetchone()[0]
             if total == 0:
                 return 0.0
-            # ai_output 为空视为超时/失败
             failed = conn.execute(
-                "SELECT COUNT(*) FROM moderation_decisions WHERE ai_used=1 AND created_at>=? AND (ai_output IS NULL OR ai_output='')",
+                "SELECT COUNT(*) FROM moderation_decisions WHERE ai_used=1 AND created_at>=? AND ai_status='failed'",
                 (to_iso(since),),
             ).fetchone()[0]
             return failed / total

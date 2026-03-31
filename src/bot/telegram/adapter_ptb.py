@@ -565,7 +565,13 @@ async def on_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         user_id=user.id,
         date=msg.date,
         text=text,
-        meta={"admin_self_test": admin_message},
+        meta={
+            "admin_self_test": admin_message,
+            "username": user.username,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "display_name": " ".join(x for x in [user.first_name, user.last_name] if x).strip() or user.username or "该用户",
+        },
     )
 
     redacted = redact_pii(text)
@@ -590,7 +596,9 @@ async def on_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         try:
             await msg.reply_text(
                 f"管理员自测完成：level={decision.final_level}，action={decision.final_action}，"
-                f"ai_used={'yes' if decision.ai_used else 'no'}，confidence={decision.confidence:.2f}。未执行真实处置。"
+                f"ai_used={'yes' if decision.ai_used else 'no'}，ai_status={decision.ai_status}，"
+                f"confidence={decision.confidence:.2f}"
+                f"{f'，ai_error={decision.ai_error}' if decision.ai_error else ''}。未执行真实处置。"
             )
         except TelegramError as exc:
             logger.warning("admin self test reply failed chat=%s user=%s err=%s", chat.id, user.id, exc)

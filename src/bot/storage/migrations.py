@@ -249,6 +249,21 @@ MIGRATIONS: list[Migration] = [
         ALTER TABLE chat_settings ADD COLUMN allow_admin_self_test INTEGER NOT NULL DEFAULT 0;
         """,
     ),
+    Migration(
+        version="0008_ai_observability",
+        sql="""
+        ALTER TABLE moderation_decisions ADD COLUMN ai_status TEXT NOT NULL DEFAULT 'skipped';
+        ALTER TABLE moderation_decisions ADD COLUMN ai_error TEXT;
+
+        UPDATE moderation_decisions
+        SET ai_status = CASE
+          WHEN ai_used = 0 THEN 'skipped'
+          WHEN ai_output IS NOT NULL AND ai_output != '' THEN 'success'
+          ELSE 'failed'
+        END
+        WHERE ai_status IS NULL OR ai_status = '' OR ai_status = 'skipped';
+        """,
+    ),
 ]
 
 

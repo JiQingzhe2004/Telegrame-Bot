@@ -66,6 +66,14 @@ class BotRepository:
                 (user.user_id, user.username, user.first_name, user.last_name, 1 if user.is_bot else 0, now),
             )
 
+    def get_chat(self, chat_id: int) -> dict[str, Any] | None:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT chat_id, title, type, created_at, updated_at FROM chats WHERE chat_id = ?",
+                (chat_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
     def get_settings(self, chat_id: int) -> ChatSettings:
         with self.db.connect() as conn:
             row = conn.execute("SELECT * FROM chat_settings WHERE chat_id = ?", (chat_id,)).fetchone()
@@ -194,8 +202,22 @@ class BotRepository:
         with self.db.connect() as conn:
             cur = conn.execute(
                 """
-                INSERT INTO moderation_decisions(chat_id, message_id, user_id, rule_hit, ai_used, ai_model, ai_input_ref, ai_output, final_level, confidence, created_at)
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO moderation_decisions(
+                  chat_id,
+                  message_id,
+                  user_id,
+                  rule_hit,
+                  ai_used,
+                  ai_status,
+                  ai_error,
+                  ai_model,
+                  ai_input_ref,
+                  ai_output,
+                  final_level,
+                  confidence,
+                  created_at
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     message.chat_id,
@@ -203,6 +225,8 @@ class BotRepository:
                     message.user_id,
                     ",".join(decision.reason_codes),
                     1 if decision.ai_used else 0,
+                    decision.ai_status,
+                    decision.ai_error,
                     ai_model,
                     None,
                     json.dumps(decision.ai_decision.raw, ensure_ascii=False) if decision.ai_decision else None,
@@ -287,7 +311,19 @@ class BotRepository:
         with self.db.connect() as conn:
             rows = conn.execute(
                 """
-                SELECT id, chat_id, message_id, user_id, rule_hit, ai_used, ai_model, final_level, confidence, created_at
+                SELECT
+                  id,
+                  chat_id,
+                  message_id,
+                  user_id,
+                  rule_hit,
+                  ai_used,
+                  ai_status,
+                  ai_error,
+                  ai_model,
+                  final_level,
+                  confidence,
+                  created_at
                 FROM moderation_decisions
                 WHERE chat_id = ?
                 ORDER BY id DESC

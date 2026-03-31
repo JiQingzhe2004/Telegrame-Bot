@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
@@ -9,10 +11,12 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from bot.domain.models import ChatRef, MessageRef, ModerationContext, UserRef
 from bot.runtime_manager import RuntimeManager
 from bot.storage.repo import BotRepository
 from bot.system_config import ConfigService
 from bot.telegram.admin_service import TelegramAdminService
+from bot.utils.time import utc_now
 from bot.version import get_backend_version
 
 
@@ -68,6 +72,27 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
         if not request.client:
             return False
         return request.client.host in {"127.0.0.1", "localhost", "::1"}
+
+    def _get_known_chat(chat_id: int) -> dict[str, Any]:
+        chat = services.repo.get_chat(chat_id)
+        if chat is None:
+            raise HTTPException(status_code=404, detail="chat_not_found")
+        return chat
+
+    def _get_ai_runtime():
+        ai_moderator = services.runtime_manager.get_ai_moderator()
+        if ai_moderator is None:
+            raise HTTPException(status_code=503, detail="ai_runtime_unavailable")
+        return ai_moderator
+
+    def _get_time_of_day(hour: int) -> str:
+        if 5 <= hour < 12:
+            return "morning"
+        if 12 <= hour < 18:
+            return "afternoon"
+        if 18 <= hour < 22:
+            return "evening"
+        return "night"
 
     @app.get("/healthz")
     async def healthz() -> dict[str, Any]:
@@ -248,6 +273,94 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
     @app.get("/api/v1/chats/{chat_id}/audits", dependencies=[Depends(require_active), Depends(auth_admin)])
     async def list_audits(chat_id: int, limit: int = 100) -> ApiEnvelope:
         return ApiEnvelope(ok=True, data=services.repo.list_audits(chat_id, limit))
+
+    @app.post("/api/v1/chats/{chat_id}/ai-test/moderation", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def test_moderation_ai(chat_id: int, body: dict[str, str]) -> ApiEnvelope:
+        text = body.get("text", "").strip()
+        if not text:
+            raise HTTPException(status_code=400, detail="missing_text")
+
+        chat = _get_known_chat(chat_id)
+        settings = services.repo.get_settings(chat_id)
+        message = MessageRef(
+            chat_id=chat_id,
+            message_id=0,
+            user_id=0,
+            date=utc_now(),
+            text=text,
+            meta={"source": "admin_ai_test"},
+        )
+        context = ModerationContext(
+            chat=ChatRef(chat_id=chat_id, type=chat.get("type") or "supergroup", title=chat.get("title")),
+            user=UserRef(user_id=0, username="admin_ai_test", is_bot=False, first_name="AI", last_name="Test"),
+            settings=settings,
+            strike_score=0,
+            whitelist_hit=False,
+            blacklist_words=services.repo.get_blacklist_words(chat_id),
+            recent_message_texts=[],
+        )
+        started_at = perf_counter()
+        try:
+            decision = await _get_ai_runtime().classify(message, context)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=502, detail=f"ai_test_failed: {exc}") from exc
+
+        latency_ms = int((perf_counter() - started_at) * 1000)
+        return ApiEnvelope(
+            ok=True,
+            data={
+                "chat_ai_enabled": settings.ai_enabled,
+                "model": decision.raw.get("_model"),
+                "category": decision.category,
+                "level": decision.level,
+                "confidence": decision.confidence,
+                "suggested_action": decision.suggested_action,
+                "reasons": decision.reasons,
+                "latency_ms": latency_ms,
+            },
+        )
+
+    @app.post("/api/v1/chats/{chat_id}/ai-test/welcome", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def test_welcome_ai(chat_id: int, body: dict[str, str]) -> ApiEnvelope:
+        user_display_name = body.get("user_display_name", "").strip()
+        if not user_display_name:
+            raise HTTPException(status_code=400, detail="missing_user_display_name")
+
+        chat = _get_known_chat(chat_id)
+        settings = services.repo.get_settings(chat_id)
+        runtime_config = services.runtime_manager.get_runtime_config_raw()
+
+        now_hour = datetime.now(tz=timezone.utc).hour
+        chosen_template = runtime_config.join_welcome_template
+        templates = services.repo.list_welcome_templates(chat_id, hour=now_hour, chat_type=chat.get("type"))
+        if templates:
+            chosen_template = templates[0]["template"]
+
+        started_at = perf_counter()
+        try:
+            result = await _get_ai_runtime().generate_welcome_result(
+                chat_title=chat.get("title") or "群聊",
+                user_display_name=user_display_name,
+                language=settings.language,
+                template=chosen_template,
+                time_of_day=_get_time_of_day(now_hour),
+                chat_type=chat.get("type"),
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=502, detail=f"ai_test_failed: {exc}") from exc
+
+        latency_ms = int((perf_counter() - started_at) * 1000)
+        return ApiEnvelope(
+            ok=True,
+            data={
+                "join_welcome_enabled": runtime_config.join_welcome_enabled,
+                "join_welcome_use_ai": runtime_config.join_welcome_use_ai,
+                "model": result.model,
+                "text": result.text,
+                "template": chosen_template,
+                "latency_ms": latency_ms,
+            },
+        )
 
     @app.get("/api/v1/chats/{chat_id}/enforcements", dependencies=[Depends(require_active), Depends(auth_admin)])
     async def list_enforcements(chat_id: int, limit: int = 100) -> ApiEnvelope:

@@ -32,6 +32,7 @@ class RuntimeManager:
         self._lock = asyncio.Lock()
         self._tg_app: Application | None = None
         self._enforcer: Enforcer | None = None
+        self._ai_moderator: OpenAiModerator | None = None
         self._state = "setup"
 
     @property
@@ -109,12 +110,14 @@ class RuntimeManager:
             await tg_app.updater.start_polling(drop_pending_updates=True)
         self._tg_app = tg_app
         self._enforcer = enforcer
+        self._ai_moderator = ai
         logger.info("runtime activated run_mode=%s", conf.run_mode)
 
     async def _stop_current(self) -> None:
         if not self._tg_app:
             self._tg_app = None
             self._enforcer = None
+            self._ai_moderator = None
             return
         app = self._tg_app
         if app.updater and app.updater.running:
@@ -123,6 +126,7 @@ class RuntimeManager:
         await app.shutdown()
         self._tg_app = None
         self._enforcer = None
+        self._ai_moderator = None
 
     def runtime_state(self) -> dict[str, Any]:
         conf = self.config_service.get_runtime_config()
@@ -144,6 +148,9 @@ class RuntimeManager:
 
     def get_enforcer(self) -> Enforcer | None:
         return self._enforcer
+
+    def get_ai_moderator(self) -> OpenAiModerator | None:
+        return self._ai_moderator
 
     def get_runtime_config_public(self) -> dict[str, Any]:
         return self.config_service.get_runtime_config().redacted()

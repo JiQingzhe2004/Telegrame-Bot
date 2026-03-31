@@ -11,7 +11,7 @@ import {
   TeamOutlined,
   ThunderboltOutlined,
 } from "@ant-design/icons";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ApiClient, type AdminActionResult } from "@/lib/api";
 import {
   buildPermissionCheck,
@@ -68,7 +68,6 @@ export function AdminConsolePage({
   onLogout,
 }: Props) {
   const { message, notification } = AntApp.useApp();
-  const queryClient = useQueryClient();
   const api = useMemo(() => new ApiClient(baseUrl), [baseUrl]);
 
   const [menuKey, setMenuKey] = useState<MenuKey>("overview");
@@ -84,21 +83,34 @@ export function AdminConsolePage({
 
   const authed = Boolean(adminToken);
   const chatReady = Boolean(chatId);
+  const keepCurrentChatData = <T,>(previousData: T | undefined, previousQuery?: { queryKey: readonly unknown[] }) =>
+    previousQuery?.queryKey[2] === chatId ? previousData : undefined;
+  const keepCurrentMembersData = <T,>(previousData: T | undefined, previousQuery?: { queryKey: readonly unknown[] }) =>
+    previousQuery?.queryKey[2] === chatId && previousQuery?.queryKey[3] === memberKeyword ? previousData : undefined;
 
   const statusQuery = useQuery({
     queryKey: queryKeys.status(baseUrl, adminToken),
     queryFn: () => api.getStatus(adminToken),
     enabled: authed,
+    placeholderData: keepPreviousData,
+    refetchInterval: 15000,
+    refetchOnWindowFocus: false,
   });
   const runtimeConfigQuery = useQuery({
     queryKey: queryKeys.runtimeConfig(baseUrl, adminToken),
     queryFn: () => api.getRuntimeConfig(adminToken),
     enabled: authed,
+    placeholderData: keepPreviousData,
+    refetchInterval: menuKey === "ai" ? 15000 : false,
+    refetchOnWindowFocus: false,
   });
   const chatsQuery = useQuery({
     queryKey: queryKeys.chats(baseUrl, adminToken),
     queryFn: () => api.listChats(adminToken),
     enabled: authed,
+    placeholderData: keepPreviousData,
+    refetchInterval: !chatId || menuKey === "system" ? 15000 : false,
+    refetchOnWindowFocus: false,
   });
 
   useEffect(() => {
@@ -113,42 +125,65 @@ export function AdminConsolePage({
     queryKey: queryKeys.settings(baseUrl, chatId, adminToken),
     queryFn: () => api.getSettings(chatId, adminToken),
     enabled: authed && chatReady,
+    placeholderData: keepCurrentChatData,
+    refetchInterval: menuKey === "policy" ? 15000 : false,
+    refetchOnWindowFocus: false,
   });
   const overviewQuery = useQuery({
     queryKey: queryKeys.overview(baseUrl, chatId, adminToken),
     queryFn: () => api.adminOverview(chatId, adminToken),
     enabled: authed && chatReady,
+    placeholderData: keepCurrentChatData,
+    refetchInterval: menuKey === "overview" || menuKey === "group" ? 15000 : false,
+    refetchOnWindowFocus: false,
   });
   const membersQuery = useQuery({
     queryKey: queryKeys.members(baseUrl, chatId, memberKeyword, adminToken),
     queryFn: () => api.adminListMembers(chatId, adminToken, 200, memberKeyword),
     enabled: authed && chatReady,
+    placeholderData: keepCurrentMembersData,
     refetchInterval: menuKey === "group" && memberAutoRefresh ? 5000 : false,
+    refetchOnWindowFocus: false,
   });
   const whitelistQuery = useQuery({
     queryKey: queryKeys.whitelist(baseUrl, chatId, adminToken),
     queryFn: () => api.listWhitelist(chatId, adminToken),
     enabled: authed && chatReady,
+    placeholderData: keepCurrentChatData,
+    refetchInterval: menuKey === "lists" ? 15000 : false,
+    refetchOnWindowFocus: false,
   });
   const blacklistQuery = useQuery({
     queryKey: queryKeys.blacklist(baseUrl, chatId, adminToken),
     queryFn: () => api.listBlacklist(chatId, adminToken),
     enabled: authed && chatReady,
+    placeholderData: keepCurrentChatData,
+    refetchInterval: menuKey === "lists" ? 15000 : false,
+    refetchOnWindowFocus: false,
   });
   const auditsQuery = useQuery({
     queryKey: queryKeys.audits(baseUrl, chatId, adminToken),
     queryFn: () => api.listAudits(chatId, adminToken, 100),
     enabled: authed && chatReady,
+    placeholderData: keepCurrentChatData,
+    refetchInterval: menuKey === "audit" ? 5000 : false,
+    refetchOnWindowFocus: false,
   });
   const enforcementsQuery = useQuery({
     queryKey: queryKeys.enforcements(baseUrl, chatId, adminToken),
     queryFn: () => api.listEnforcements(chatId, adminToken, 100),
     enabled: authed && chatReady,
+    placeholderData: keepCurrentChatData,
+    refetchInterval: menuKey === "enforcement" ? 5000 : false,
+    refetchOnWindowFocus: false,
   });
   const appealsQuery = useQuery({
     queryKey: queryKeys.appeals(baseUrl, chatId, adminToken),
     queryFn: () => api.listAppeals(chatId, adminToken),
     enabled: authed && chatReady,
+    placeholderData: keepCurrentChatData,
+    refetchInterval: menuKey === "appeals" ? 10000 : false,
+    refetchOnWindowFocus: false,
   });
 
   const isLoading =
@@ -186,25 +221,45 @@ export function AdminConsolePage({
     blacklistQuery.data,
     auditsQuery.data,
     enforcementsQuery.data,
-    appealsQuery.data,
-  ]);
-
-  const refreshAll = async () => {
-    await queryClient.invalidateQueries();
-    await Promise.all([
-      statusQuery.refetch(),
-      runtimeConfigQuery.refetch(),
-      chatsQuery.refetch(),
-      settingsQuery.refetch(),
-      overviewQuery.refetch(),
-      membersQuery.refetch(),
-      whitelistQuery.refetch(),
-      blacklistQuery.refetch(),
-      auditsQuery.refetch(),
-      enforcementsQuery.refetch(),
-      appealsQuery.refetch(),
+      appealsQuery.data,
     ]);
+
+  const isRefreshing =
+    statusQuery.isFetching ||
+    runtimeConfigQuery.isFetching ||
+    chatsQuery.isFetching ||
+    settingsQuery.isFetching ||
+    overviewQuery.isFetching ||
+    membersQuery.isFetching ||
+    whitelistQuery.isFetching ||
+    blacklistQuery.isFetching ||
+    auditsQuery.isFetching ||
+    enforcementsQuery.isFetching ||
+    appealsQuery.isFetching;
+
+  const refreshVisibleData = async () => {
+    const tasks: Array<Promise<unknown>> = [statusQuery.refetch(), chatsQuery.refetch()];
+    if (menuKey === "ai" || menuKey === "system") {
+      tasks.push(runtimeConfigQuery.refetch());
+    }
+    if (chatReady) {
+      tasks.push(settingsQuery.refetch(), overviewQuery.refetch());
+      if (menuKey === "group") tasks.push(membersQuery.refetch());
+      if (menuKey === "lists") tasks.push(whitelistQuery.refetch(), blacklistQuery.refetch());
+      if (menuKey === "audit") tasks.push(auditsQuery.refetch());
+      if (menuKey === "enforcement") tasks.push(enforcementsQuery.refetch());
+      if (menuKey === "appeals") tasks.push(appealsQuery.refetch());
+    }
+    await Promise.all(tasks);
     message.success("数据已刷新");
+  };
+
+  const refreshModerationData = async () => {
+    const tasks: Array<Promise<unknown>> = [statusQuery.refetch()];
+    if (chatReady) {
+      tasks.push(overviewQuery.refetch(), membersQuery.refetch(), auditsQuery.refetch(), enforcementsQuery.refetch(), appealsQuery.refetch());
+    }
+    await Promise.all(tasks);
   };
 
   const runAction = async (runner: () => Promise<AdminActionResult>, successText = "操作成功") => {
@@ -215,7 +270,7 @@ export function AdminConsolePage({
       } else {
         message.success(result.reason ? formatAdminActionResult(result) : successText);
       }
-      await refreshAll();
+      await refreshModerationData();
     } catch (error) {
       message.error(getErrorMessage(error));
     }
@@ -266,6 +321,20 @@ export function AdminConsolePage({
     }
   };
 
+  const testModerationAi = async (text: string) => {
+    if (!chatId) {
+      throw new Error("请先选择 Chat");
+    }
+    return api.testModerationAi(chatId, adminToken, text);
+  };
+
+  const testWelcomeAi = async (userDisplayName: string) => {
+    if (!chatId) {
+      throw new Error("请先选择 Chat");
+    }
+    return api.testWelcomeAi(chatId, adminToken, userDisplayName);
+  };
+
   const reloadChats = async () => {
     const out = await chatsQuery.refetch();
     const nextChatId = out.data?.[0] ? String(out.data[0].chat_id) : "";
@@ -283,12 +352,12 @@ export function AdminConsolePage({
   };
 
   const actions: AdminActions = {
-    refreshAll,
+    refreshAll: refreshVisibleData,
     updateSettings: async (payload) => {
       try {
         await api.updateSettings(chatId, adminToken, payload);
         message.success("策略已更新");
-        await settingsQuery.refetch();
+        await Promise.all([settingsQuery.refetch(), auditsQuery.refetch(), overviewQuery.refetch()]);
       } catch (error) {
         message.error(getErrorMessage(error));
       }
@@ -424,7 +493,17 @@ export function AdminConsolePage({
       );
     }
     if (menuKey === "ai") {
-      return <AiConfigPanel config={runtimeConfigQuery.data} loading={runtimeConfigQuery.isLoading} saving={savingRuntimeConfig} onSave={saveRuntimeConfig} />;
+      return (
+        <AiConfigPanel
+          config={runtimeConfigQuery.data}
+          loading={runtimeConfigQuery.isLoading}
+          saving={savingRuntimeConfig}
+          chatId={chatId || undefined}
+          onSave={saveRuntimeConfig}
+          onTestModeration={testModerationAi}
+          onTestWelcome={testWelcomeAi}
+        />
+      );
     }
     if (menuKey === "policy") return <PolicyConfigPanel data={bundle} actions={actions} />;
     if (menuKey === "lists") return <ListManagePanel data={bundle} actions={actions} />;
@@ -481,8 +560,9 @@ export function AdminConsolePage({
               <Tag color="blue">{chatId || "未选择 Chat"}</Tag>
               <Tag color="cyan">前端 v{frontendVersion}</Tag>
               <Tag color="geekblue">后端 v{backendVersion}</Tag>
+              <Tag color={isRefreshing ? "processing" : "success"}>{isRefreshing ? "同步中" : "已同步"}</Tag>
               <Typography.Text type="secondary">最近同步: {lastSyncAt ? formatTime(lastSyncAt.toISOString()) : "-"}</Typography.Text>
-              {overviewQuery.data?.capabilities ? (
+              {chatReady && overviewQuery.data?.capabilities ? (
                 (() => {
                   const report = buildPermissionCheck(overviewQuery.data.capabilities);
                   return report.allGood ? (
@@ -504,7 +584,7 @@ export function AdminConsolePage({
                 onChange={(e) => setGlobalSearch(e.target.value)}
                 style={{ width: 280 }}
               />
-              <Button onClick={() => void refreshAll()}>手动刷新</Button>
+              <Button onClick={() => void refreshVisibleData()}>手动刷新</Button>
               <Button onClick={onLogout}>退出登录</Button>
             </Space>
           </Space>

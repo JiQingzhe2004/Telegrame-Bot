@@ -69,13 +69,14 @@ export function App() {
     queryKey: [...queryKeys.runtime(baseUrl), runtimeAttempt],
     queryFn: () => api.getRuntimeState(),
     retry: 1,
-    refetchInterval: 15000,
+    refetchOnWindowFocus: false,
   });
   const adminSessionQuery = useQuery({
     queryKey: [...queryKeys.adminSession(baseUrl, adminToken), loginAttempt],
     queryFn: () => api.login(adminToken),
     enabled: runtimeStateQuery.data?.state === "active" && Boolean(adminToken),
     retry: false,
+    refetchOnWindowFocus: false,
   });
 
   useEffect(() => {
