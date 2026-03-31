@@ -548,3 +548,20 @@ class BotRepository:
         with self.db.connect() as conn:
             cur = conn.execute("DELETE FROM welcome_templates WHERE id = ?", (template_id,))
             return cur.rowcount > 0
+
+    def save_raid_event(self, chat_id: int, trigger_type: str, join_count: int, details: str | None = None) -> int:
+        """记录 Raid 事件"""
+        with self.db.connect() as conn:
+            cur = conn.execute(
+                "INSERT INTO raid_events(chat_id, trigger_type, join_count, details, created_at) VALUES(?,?,?,?,?)",
+                (chat_id, trigger_type, join_count, details, to_iso(utc_now())),
+            )
+            return int(cur.lastrowid)
+
+    def list_raid_events(self, chat_id: int, limit: int = 50) -> list[dict]:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM raid_events WHERE chat_id=? ORDER BY id DESC LIMIT ?",
+                (chat_id, limit),
+            ).fetchall()
+            return [dict(r) for r in rows]

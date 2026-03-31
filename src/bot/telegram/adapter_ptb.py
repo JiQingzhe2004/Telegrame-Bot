@@ -35,6 +35,7 @@ from bot.telegram.commands import (
 )
 from bot.telegram.permissions import get_permission_snapshot, is_admin
 from bot.utils.time import utc_now
+from bot.utils.rate_limit import RaidDetector
 
 logger = logging.getLogger(__name__)
 VERIFY_CALLBACK_PREFIX = "join_verify:"
@@ -330,6 +331,41 @@ async def on_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE
     question_type = runtime_config.join_verification_question_type
     whitelist_bypass_enabled = runtime_config.join_verification_whitelist_bypass
 
+    # Raid 检测：逐个成员记录入群事件，任一触发则记录并广播告警
+    raid_triggered = False
+    for joined in members:
+        if joined.is_bot:
+            continue
+        _name = joined.full_name or joined.username or str(joined.id)
+        from datetime import datetime, timezone as _tz
+        raid_result = _raid_detector.record_and_check(
+            chat_id=chat.id,
+            display_name=_name,
+            now=datetime.now(tz=_tz.utc),
+        )
+        if raid_result.hit and not raid_triggered:
+            raid_triggered = True
+            try:
+                import json as _json
+                repo.save_raid_event(
+                    chat_id=chat.id,
+                    trigger_type=raid_result.trigger_type,
+                    join_count=raid_result.join_count,
+                    details=_json.dumps(
+                        {"similar_names": raid_result.similar_names or []},
+                        ensure_ascii=False,
+                    ),
+                )
+                await context.bot.send_message(
+                    chat_id=chat.id,
+                    text=(
+                        f"⚠️ 检测到可疑入群行为（{raid_result.trigger_type}）："
+                        f"{raid_result.join_count} 人在 {raid_result.window_seconds} 秒内入群，已触发高压策略。"
+                    ),
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("raid alert failed chat=%s err=%s", chat.id, exc)
+
     for joined in members:
         if joined.is_bot:
             continue
@@ -527,6 +563,9 @@ async def on_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     enforcement = await enforcer.apply(context.bot, message_ref, decision, perms)
     if enforcement.applied_action != "none":
         repo.save_enforcement(message_ref, enforcement)
+
+
+_raid_detector = RaidDetector()
 
 
 def build_application(

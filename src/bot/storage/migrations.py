@@ -165,6 +165,20 @@ MIGRATIONS: list[Migration] = [
         """,
     ),
     Migration(
+        version="0005_raid_events",
+        sql="""
+        CREATE TABLE IF NOT EXISTS raid_events(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          chat_id INTEGER NOT NULL,
+          trigger_type TEXT NOT NULL,
+          join_count INTEGER NOT NULL DEFAULT 0,
+          details TEXT,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_raid_chat ON raid_events(chat_id, created_at);
+        """,
+    ),
+    Migration(
         version="0003_join_verification",
         sql="""
         CREATE TABLE IF NOT EXISTS join_verification_questions(
