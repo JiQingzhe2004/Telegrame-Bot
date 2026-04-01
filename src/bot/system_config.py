@@ -140,6 +140,10 @@ class ConfigService:
             errors.append("ai_timeout_seconds must be positive")
         if conf.join_verification_timeout_seconds <= 0:
             errors.append("join_verification_timeout_seconds must be positive")
+        if conf.join_verification_question_type not in {"button", "quiz"}:
+            errors.append("join_verification_question_type must be button or quiz")
+        if conf.join_verification_max_attempts <= 0:
+            errors.append("join_verification_max_attempts must be positive")
         if len(conf.join_welcome_template) > 300:
             errors.append("join_welcome_template is too long")
         if conf.run_mode == "webhook" and not conf.webhook_public_url:

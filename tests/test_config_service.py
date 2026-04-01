@@ -86,3 +86,19 @@ def test_join_verification_timeout_must_be_positive(tmp_path):
         assert "join_verification_timeout_seconds must be positive" in str(exc)
     else:
         raise AssertionError("expected validation error")
+
+
+def test_join_verification_question_type_must_be_valid(tmp_path):
+    svc = make_service(tmp_path)
+    try:
+        svc.save_runtime_config(
+            {
+                "bot_token": "bot-token",
+                "admin_api_token": "admin-token",
+                "join_verification_question_type": "ai",
+            }
+        )
+    except ValueError as exc:
+        assert "join_verification_question_type must be button or quiz" in str(exc)
+    else:
+        raise AssertionError("expected validation error")

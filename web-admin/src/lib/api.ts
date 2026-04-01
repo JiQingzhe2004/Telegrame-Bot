@@ -45,6 +45,9 @@ export type RuntimeConfigPublic = {
   ai_timeout_seconds: number;
   join_verification_enabled: boolean;
   join_verification_timeout_seconds: number;
+  join_verification_question_type: "button" | "quiz";
+  join_verification_max_attempts: number;
+  join_verification_whitelist_bypass: boolean;
   join_welcome_enabled: boolean;
   join_welcome_use_ai: boolean;
   join_welcome_template: string;
@@ -169,6 +172,17 @@ export type ChatMemberBrief = {
   last_name: string | null;
   last_message_at: string | null;
   strike_score: number;
+};
+
+export type VerificationQuestion = {
+  id: number;
+  chat_id: number | null;
+  scope: "chat" | "global";
+  question: string;
+  options: string[];
+  answer_index: number;
+  answer_text: string | null;
+  created_at: string;
 };
 
 export class ApiError extends Error {
@@ -357,6 +371,9 @@ export class ApiClient {
         | "ai_timeout_seconds"
         | "join_verification_enabled"
         | "join_verification_timeout_seconds"
+        | "join_verification_question_type"
+        | "join_verification_max_attempts"
+        | "join_verification_whitelist_bypass"
         | "join_welcome_enabled"
         | "join_welcome_use_ai"
         | "join_welcome_template"
@@ -430,6 +447,47 @@ export class ApiClient {
 
   deleteBlacklist(chatId: string, adminToken: string, value: string) {
     return this.request<{ deleted: number }>(`/api/v1/chats/${chatId}/blacklist?value=${encodeURIComponent(value)}`, {
+      method: "DELETE",
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  listVerificationQuestions(chatId: string, adminToken: string, includeGlobal = true) {
+    return this.request<VerificationQuestion[]>(
+      `/api/v1/chats/${chatId}/verification/questions?include_global=${includeGlobal ? 1 : 0}`,
+      {
+        headers: this.adminHeaders(adminToken),
+      },
+    );
+  }
+
+  createVerificationQuestion(
+    chatId: string,
+    adminToken: string,
+    payload: { scope: "chat" | "global"; question: string; options: string[]; answer_index: number },
+  ) {
+    return this.request<VerificationQuestion>(`/api/v1/chats/${chatId}/verification/questions`, {
+      method: "POST",
+      headers: this.adminHeaders(adminToken),
+      body: JSON.stringify(payload),
+    });
+  }
+
+  updateVerificationQuestion(
+    chatId: string,
+    adminToken: string,
+    questionId: number,
+    payload: { scope: "chat" | "global"; question: string; options: string[]; answer_index: number },
+  ) {
+    return this.request<VerificationQuestion>(`/api/v1/chats/${chatId}/verification/questions/${questionId}`, {
+      method: "PUT",
+      headers: this.adminHeaders(adminToken),
+      body: JSON.stringify(payload),
+    });
+  }
+
+  deleteVerificationQuestion(chatId: string, adminToken: string, questionId: number) {
+    return this.request<{ deleted: number }>(`/api/v1/chats/${chatId}/verification/questions/${questionId}`, {
       method: "DELETE",
       headers: this.adminHeaders(adminToken),
     });

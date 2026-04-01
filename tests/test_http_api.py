@@ -211,3 +211,54 @@ def test_ai_test_endpoint_requires_admin_token(tmp_path):
     response = client.post("/api/v1/chats/1/ai-test/moderation", headers={"X-Admin-Token": "wrong"}, json={"text": "x"})
 
     assert response.status_code == 401
+
+
+def test_verification_question_crud_endpoints(tmp_path):
+    app, repo, _ = make_app_bundle(tmp_path)
+    repo.upsert_chat(ChatRef(chat_id=1, type="supergroup", title="测试群"))
+    client = TestClient(app)
+
+    created = client.post(
+        "/api/v1/chats/1/verification/questions",
+        headers={"X-Admin-Token": "admin-token"},
+        json={
+            "scope": "chat",
+            "question": "进群后第一件事是什么？",
+            "options": ["看群规", "发广告", "刷屏"],
+            "answer_index": 0,
+        },
+    )
+
+    assert created.status_code == 200
+    created_data = created.json()["data"]
+    assert created_data["scope"] == "chat"
+    assert created_data["answer_text"] == "看群规"
+
+    listed = client.get(
+        "/api/v1/chats/1/verification/questions",
+        headers={"X-Admin-Token": "admin-token"},
+    )
+    assert listed.status_code == 200
+    assert len(listed.json()["data"]) == 1
+
+    updated = client.put(
+        f"/api/v1/chats/1/verification/questions/{created_data['id']}",
+        headers={"X-Admin-Token": "admin-token"},
+        json={
+            "scope": "global",
+            "question": "本群最重要的规则是什么？",
+            "options": ["友善交流", "发广告"],
+            "answer_index": 0,
+        },
+    )
+    assert updated.status_code == 200
+    updated_data = updated.json()["data"]
+    assert updated_data["scope"] == "global"
+    assert updated_data["answer_text"] == "友善交流"
+
+    deleted = client.delete(
+        f"/api/v1/chats/1/verification/questions/{created_data['id']}",
+        headers={"X-Admin-Token": "admin-token"},
+    )
+    assert deleted.status_code == 200
+    assert deleted.json()["data"]["deleted"] == 1

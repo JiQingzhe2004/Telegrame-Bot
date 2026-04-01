@@ -145,6 +145,14 @@ export function AdminConsolePage({
     refetchInterval: menuKey === "group" && memberAutoRefresh ? 5000 : false,
     refetchOnWindowFocus: false,
   });
+  const verificationQuestionsQuery = useQuery({
+    queryKey: queryKeys.verificationQuestions(baseUrl, chatId, adminToken),
+    queryFn: () => api.listVerificationQuestions(chatId, adminToken),
+    enabled: authed && chatReady,
+    placeholderData: keepCurrentChatData,
+    refetchInterval: menuKey === "ai" ? 15000 : false,
+    refetchOnWindowFocus: false,
+  });
   const whitelistQuery = useQuery({
     queryKey: queryKeys.whitelist(baseUrl, chatId, adminToken),
     queryFn: () => api.listWhitelist(chatId, adminToken),
@@ -192,6 +200,7 @@ export function AdminConsolePage({
     settingsQuery.isLoading ||
     overviewQuery.isLoading ||
     membersQuery.isLoading ||
+    verificationQuestionsQuery.isLoading ||
     runtimeConfigQuery.isLoading;
 
   useEffect(() => {
@@ -202,6 +211,7 @@ export function AdminConsolePage({
       settingsQuery.data ||
       overviewQuery.data ||
       membersQuery.data ||
+      verificationQuestionsQuery.data ||
       whitelistQuery.data ||
       blacklistQuery.data ||
       auditsQuery.data ||
@@ -217,6 +227,7 @@ export function AdminConsolePage({
     settingsQuery.data,
     overviewQuery.data,
     membersQuery.data,
+    verificationQuestionsQuery.data,
     whitelistQuery.data,
     blacklistQuery.data,
     auditsQuery.data,
@@ -231,6 +242,7 @@ export function AdminConsolePage({
     settingsQuery.isFetching ||
     overviewQuery.isFetching ||
     membersQuery.isFetching ||
+    verificationQuestionsQuery.isFetching ||
     whitelistQuery.isFetching ||
     blacklistQuery.isFetching ||
     auditsQuery.isFetching ||
@@ -244,6 +256,7 @@ export function AdminConsolePage({
     }
     if (chatReady) {
       tasks.push(settingsQuery.refetch(), overviewQuery.refetch());
+      if (menuKey === "ai") tasks.push(verificationQuestionsQuery.refetch());
       if (menuKey === "group") tasks.push(membersQuery.refetch());
       if (menuKey === "lists") tasks.push(whitelistQuery.refetch(), blacklistQuery.refetch());
       if (menuKey === "audit") tasks.push(auditsQuery.refetch());
@@ -302,6 +315,9 @@ export function AdminConsolePage({
     ai_timeout_seconds: number;
     join_verification_enabled: boolean;
     join_verification_timeout_seconds: number;
+    join_verification_question_type: "button" | "quiz";
+    join_verification_max_attempts: number;
+    join_verification_whitelist_bypass: boolean;
     join_welcome_enabled: boolean;
     join_welcome_use_ai: boolean;
     join_welcome_template: string;
@@ -312,7 +328,7 @@ export function AdminConsolePage({
     setSavingRuntimeConfig(true);
     try {
       await api.updateRuntimeConfig(adminToken, payload);
-      message.success("AI 配置已更新并热生效");
+      message.success("AI 与入群配置已更新并热生效");
       await Promise.all([runtimeConfigQuery.refetch(), statusQuery.refetch()]);
     } catch (error) {
       message.error(getErrorMessage(error));
@@ -333,6 +349,48 @@ export function AdminConsolePage({
       throw new Error("请先选择 Chat");
     }
     return api.testWelcomeAi(chatId, adminToken, userDisplayName);
+  };
+
+  const createVerificationQuestion = async (payload: { scope: "chat" | "global"; question: string; options: string[]; answer_index: number }) => {
+    if (!chatId) {
+      throw new Error("请先选择 Chat");
+    }
+    try {
+      await api.createVerificationQuestion(chatId, adminToken, payload);
+      message.success("验证题已新增");
+      await verificationQuestionsQuery.refetch();
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    }
+  };
+
+  const updateVerificationQuestion = async (
+    questionId: number,
+    payload: { scope: "chat" | "global"; question: string; options: string[]; answer_index: number },
+  ) => {
+    if (!chatId) {
+      throw new Error("请先选择 Chat");
+    }
+    try {
+      await api.updateVerificationQuestion(chatId, adminToken, questionId, payload);
+      message.success("验证题已更新");
+      await verificationQuestionsQuery.refetch();
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    }
+  };
+
+  const deleteVerificationQuestion = async (questionId: number) => {
+    if (!chatId) {
+      throw new Error("请先选择 Chat");
+    }
+    try {
+      await api.deleteVerificationQuestion(chatId, adminToken, questionId);
+      message.success("验证题已删除");
+      await verificationQuestionsQuery.refetch();
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    }
   };
 
   const reloadChats = async () => {
@@ -498,10 +556,15 @@ export function AdminConsolePage({
           config={runtimeConfigQuery.data}
           loading={runtimeConfigQuery.isLoading}
           saving={savingRuntimeConfig}
+          questionsLoading={verificationQuestionsQuery.isLoading || verificationQuestionsQuery.isFetching}
+          verificationQuestions={verificationQuestionsQuery.data ?? []}
           chatId={chatId || undefined}
           onSave={saveRuntimeConfig}
           onTestModeration={testModerationAi}
           onTestWelcome={testWelcomeAi}
+          onCreateQuestion={createVerificationQuestion}
+          onUpdateQuestion={updateVerificationQuestion}
+          onDeleteQuestion={deleteVerificationQuestion}
         />
       );
     }

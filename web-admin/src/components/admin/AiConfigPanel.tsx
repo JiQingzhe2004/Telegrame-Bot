@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import { Alert, Button, Card, Col, Descriptions, Form, Input, InputNumber, Row, Select, Space, Switch, Tag, Typography } from "antd";
-import type { ModerationAiTestResult, RuntimeConfigPublic, WelcomeAiTestResult } from "@/lib/api";
+import type { ModerationAiTestResult, RuntimeConfigPublic, VerificationQuestion, WelcomeAiTestResult } from "@/lib/api";
+import { VerificationQuestionPanel } from "@/components/admin/VerificationQuestionPanel";
 
 type Props = {
   config?: RuntimeConfigPublic;
   loading: boolean;
   saving: boolean;
+  questionsLoading: boolean;
+  verificationQuestions: VerificationQuestion[];
   chatId?: string;
   onSave: (payload: {
     openai_api_key?: string;
@@ -15,6 +18,9 @@ type Props = {
     ai_timeout_seconds: number;
     join_verification_enabled: boolean;
     join_verification_timeout_seconds: number;
+    join_verification_question_type: "button" | "quiz";
+    join_verification_max_attempts: number;
+    join_verification_whitelist_bypass: boolean;
     join_welcome_enabled: boolean;
     join_welcome_use_ai: boolean;
     join_welcome_template: string;
@@ -24,9 +30,25 @@ type Props = {
   }) => Promise<void>;
   onTestModeration: (text: string) => Promise<ModerationAiTestResult>;
   onTestWelcome: (userDisplayName: string) => Promise<WelcomeAiTestResult>;
+  onCreateQuestion: (payload: { scope: "chat" | "global"; question: string; options: string[]; answer_index: number }) => Promise<void>;
+  onUpdateQuestion: (questionId: number, payload: { scope: "chat" | "global"; question: string; options: string[]; answer_index: number }) => Promise<void>;
+  onDeleteQuestion: (questionId: number) => Promise<void>;
 };
 
-export function AiConfigPanel({ config, loading, saving, chatId, onSave, onTestModeration, onTestWelcome }: Props) {
+export function AiConfigPanel({
+  config,
+  loading,
+  saving,
+  questionsLoading,
+  verificationQuestions,
+  chatId,
+  onSave,
+  onTestModeration,
+  onTestWelcome,
+  onCreateQuestion,
+  onUpdateQuestion,
+  onDeleteQuestion,
+}: Props) {
   const [form] = Form.useForm();
   const [moderationText, setModerationText] = useState("这是一条 AI 审计测试消息。");
   const [welcomeUserDisplayName, setWelcomeUserDisplayName] = useState("测试用户");
@@ -47,6 +69,9 @@ export function AiConfigPanel({ config, loading, saving, chatId, onSave, onTestM
       ai_timeout_seconds: config.ai_timeout_seconds,
       join_verification_enabled: config.join_verification_enabled,
       join_verification_timeout_seconds: config.join_verification_timeout_seconds,
+      join_verification_question_type: config.join_verification_question_type,
+      join_verification_max_attempts: config.join_verification_max_attempts,
+      join_verification_whitelist_bypass: config.join_verification_whitelist_bypass,
       join_welcome_enabled: config.join_welcome_enabled,
       join_welcome_use_ai: config.join_welcome_use_ai,
       join_welcome_template: config.join_welcome_template,
@@ -89,7 +114,7 @@ export function AiConfigPanel({ config, loading, saving, chatId, onSave, onTestM
   };
 
   return (
-    <Card title="AI 配置" loading={loading}>
+    <Card title="AI 与入群配置" loading={loading}>
       <Space direction="vertical" style={{ width: "100%" }} size={16}>
         <Alert
           type="info"
@@ -117,6 +142,9 @@ export function AiConfigPanel({ config, loading, saving, chatId, onSave, onTestM
               ai_timeout_seconds: Number(values.ai_timeout_seconds),
               join_verification_enabled: Boolean(values.join_verification_enabled),
               join_verification_timeout_seconds: Number(values.join_verification_timeout_seconds),
+              join_verification_question_type: values.join_verification_question_type,
+              join_verification_max_attempts: Number(values.join_verification_max_attempts),
+              join_verification_whitelist_bypass: Boolean(values.join_verification_whitelist_bypass),
               join_welcome_enabled: Boolean(values.join_welcome_enabled),
               join_welcome_use_ai: Boolean(values.join_welcome_use_ai),
               join_welcome_template: values.join_welcome_template?.trim() || "欢迎 {user} 加入 {chat}，请先阅读群规并友善交流。",
@@ -160,6 +188,26 @@ export function AiConfigPanel({ config, loading, saving, chatId, onSave, onTestM
             <Col xs={24} md={12}>
               <Form.Item label="入群验证超时（秒）" name="join_verification_timeout_seconds" rules={[{ required: true, message: "必填" }]}>
                 <InputNumber min={30} max={3600} style={{ width: "100%" }} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item label="验证方式" name="join_verification_question_type" rules={[{ required: true, message: "必选" }]}>
+                <Select
+                  options={[
+                    { label: "按钮验证", value: "button" },
+                    { label: "题库问答", value: "quiz" },
+                  ]}
+                />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item label="最大尝试次数" name="join_verification_max_attempts" rules={[{ required: true, message: "必填" }]}>
+                <InputNumber min={1} max={10} style={{ width: "100%" }} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item label="白名单跳过验证" name="join_verification_whitelist_bypass" valuePropName="checked">
+                <Switch />
               </Form.Item>
             </Col>
             <Col xs={24} md={12}>
@@ -272,6 +320,15 @@ export function AiConfigPanel({ config, loading, saving, chatId, onSave, onTestM
             </Card>
           </Col>
         </Row>
+        <VerificationQuestionPanel
+          chatId={chatId}
+          loading={questionsLoading}
+          questionType={config?.join_verification_question_type ?? "button"}
+          questions={verificationQuestions}
+          onCreate={onCreateQuestion}
+          onUpdate={onUpdateQuestion}
+          onDelete={onDeleteQuestion}
+        />
       </Space>
     </Card>
   );

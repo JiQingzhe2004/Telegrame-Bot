@@ -8,6 +8,8 @@ export const queryKeys = {
   overview: (baseUrl: string, chatId: string, adminToken: string) => ["overview", baseUrl, chatId, adminToken] as const,
   members: (baseUrl: string, chatId: string, keyword: string, adminToken: string) =>
     ["members", baseUrl, chatId, keyword, adminToken] as const,
+  verificationQuestions: (baseUrl: string, chatId: string, adminToken: string) =>
+    ["verificationQuestions", baseUrl, chatId, adminToken] as const,
   whitelist: (baseUrl: string, chatId: string, adminToken: string) => ["whitelist", baseUrl, chatId, adminToken] as const,
   blacklist: (baseUrl: string, chatId: string, adminToken: string) => ["blacklist", baseUrl, chatId, adminToken] as const,
   audits: (baseUrl: string, chatId: string, adminToken: string) => ["audits", baseUrl, chatId, adminToken] as const,

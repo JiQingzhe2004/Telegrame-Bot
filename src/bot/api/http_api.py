@@ -94,6 +94,37 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
             return "evening"
         return "night"
 
+    def _parse_verification_question_payload(chat_id: int, body: dict[str, Any]) -> dict[str, Any]:
+        question = str(body.get("question", "")).strip()
+        if not question:
+            raise HTTPException(status_code=400, detail="missing_question")
+
+        raw_options = body.get("options")
+        if not isinstance(raw_options, list):
+            raise HTTPException(status_code=400, detail="invalid_options")
+        options = [str(item).strip() for item in raw_options if str(item).strip()]
+        if len(options) < 2 or len(options) > 4:
+            raise HTTPException(status_code=400, detail="invalid_options")
+
+        try:
+            answer_index = int(body.get("answer_index", -1))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="invalid_answer_index") from exc
+        if answer_index < 0 or answer_index >= len(options):
+            raise HTTPException(status_code=400, detail="invalid_answer_index")
+
+        scope = str(body.get("scope", "chat")).strip().lower() or "chat"
+        if scope not in {"chat", "global"}:
+            raise HTTPException(status_code=400, detail="invalid_scope")
+
+        return {
+            "chat_id": None if scope == "global" else chat_id,
+            "scope": scope,
+            "question": question,
+            "options": options,
+            "answer_index": answer_index,
+        }
+
     @app.get("/healthz")
     async def healthz() -> dict[str, Any]:
         state = services.runtime_manager.runtime_state()
@@ -212,6 +243,9 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
             "ai_timeout_seconds",
             "join_verification_enabled",
             "join_verification_timeout_seconds",
+            "join_verification_question_type",
+            "join_verification_max_attempts",
+            "join_verification_whitelist_bypass",
             "join_welcome_enabled",
             "join_welcome_use_ai",
             "join_welcome_template",
@@ -241,6 +275,47 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
     async def put_settings(chat_id: int, body: dict[str, Any]) -> ApiEnvelope:
         services.repo.update_settings(chat_id, body)
         return ApiEnvelope(ok=True, data=services.repo.get_settings(chat_id).__dict__)
+
+    @app.get("/api/v1/chats/{chat_id}/verification/questions", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def list_verification_questions(chat_id: int, include_global: bool = True) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        return ApiEnvelope(ok=True, data=services.repo.list_verification_questions(chat_id, include_global=include_global))
+
+    @app.post("/api/v1/chats/{chat_id}/verification/questions", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def create_verification_question(chat_id: int, body: dict[str, Any]) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        payload = _parse_verification_question_payload(chat_id, body)
+        item = services.repo.create_verification_question(
+            chat_id=payload["chat_id"],
+            question=payload["question"],
+            options=payload["options"],
+            answer_index=payload["answer_index"],
+        )
+        return ApiEnvelope(ok=True, data=item)
+
+    @app.put("/api/v1/chats/{chat_id}/verification/questions/{question_id}", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def update_verification_question(chat_id: int, question_id: int, body: dict[str, Any]) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        payload = _parse_verification_question_payload(chat_id, body)
+        item = services.repo.update_verification_question(
+            access_chat_id=chat_id,
+            question_id=question_id,
+            target_chat_id=payload["chat_id"],
+            question=payload["question"],
+            options=payload["options"],
+            answer_index=payload["answer_index"],
+        )
+        if item is None:
+            raise HTTPException(status_code=404, detail="verification_question_not_found")
+        return ApiEnvelope(ok=True, data=item)
+
+    @app.delete("/api/v1/chats/{chat_id}/verification/questions/{question_id}", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def delete_verification_question(chat_id: int, question_id: int) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        deleted = services.repo.delete_verification_question(chat_id, question_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="verification_question_not_found")
+        return ApiEnvelope(ok=True, data={"deleted": deleted})
 
     @app.get("/api/v1/chats/{chat_id}/whitelist", dependencies=[Depends(require_active), Depends(auth_admin)])
     async def list_whitelist(chat_id: int) -> ApiEnvelope:

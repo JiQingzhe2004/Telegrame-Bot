@@ -38,6 +38,9 @@ type SetupFormValues = {
   ai_high_risk_model: string;
   join_verification_enabled: boolean;
   join_verification_timeout_seconds: number;
+  join_verification_question_type: "button" | "quiz";
+  join_verification_max_attempts: number;
+  join_verification_whitelist_bypass: boolean;
   join_welcome_enabled: boolean;
   join_welcome_use_ai: boolean;
   join_welcome_template: string;
@@ -167,6 +170,9 @@ export function SetupWizardPage({ baseUrl, frontendVersion, backendVersion, onBa
                     ai_high_risk_model: "gpt-5.2",
                     join_verification_enabled: true,
                     join_verification_timeout_seconds: 180,
+                    join_verification_question_type: "button",
+                    join_verification_max_attempts: 3,
+                    join_verification_whitelist_bypass: true,
                     join_welcome_enabled: true,
                     join_welcome_use_ai: true,
                     join_welcome_template: "欢迎 {user} 加入 {chat}，请先阅读群规并友善交流。",
@@ -239,6 +245,26 @@ export function SetupWizardPage({ baseUrl, frontendVersion, backendVersion, onBa
                     <Col xs={24} md={12}>
                       <Form.Item label="入群验证超时（秒）" name="join_verification_timeout_seconds" rules={[{ required: true, message: "必填" }]}>
                         <InputNumber min={30} max={3600} style={{ width: "100%" }} />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item label="验证方式" name="join_verification_question_type" rules={[{ required: true, message: "必选" }]}>
+                        <Select
+                          options={[
+                            { label: "按钮验证", value: "button" },
+                            { label: "题库问答", value: "quiz" },
+                          ]}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item label="最大尝试次数" name="join_verification_max_attempts" rules={[{ required: true, message: "必填" }]}>
+                        <InputNumber min={1} max={10} style={{ width: "100%" }} />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item label="白名单跳过验证" name="join_verification_whitelist_bypass" valuePropName="checked">
+                        <Switch />
                       </Form.Item>
                     </Col>
                     <Col xs={24} md={12}>

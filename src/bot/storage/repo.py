@@ -475,6 +475,140 @@ class BotRepository:
             )
             return int(cur.lastrowid)
 
+    @staticmethod
+    def _serialize_verification_question_row(row: Any) -> dict[str, Any]:
+        data = dict(row)
+        raw_options = data.get("options")
+        if isinstance(raw_options, str):
+            try:
+                options = json.loads(raw_options)
+            except json.JSONDecodeError:
+                options = []
+        else:
+            options = raw_options or []
+        cleaned_options = [str(item).strip() for item in options if str(item).strip()]
+        answer_index = int(data.get("answer_index", 0))
+        data["options"] = cleaned_options
+        data["answer_text"] = cleaned_options[answer_index] if 0 <= answer_index < len(cleaned_options) else None
+        data["scope"] = "global" if data.get("chat_id") is None else "chat"
+        return data
+
+    def list_verification_questions(self, chat_id: int, include_global: bool = True) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            if include_global:
+                rows = conn.execute(
+                    """
+                    SELECT id, chat_id, question, options, answer_index, created_at
+                    FROM join_verification_questions
+                    WHERE chat_id = ? OR chat_id IS NULL
+                    ORDER BY CASE WHEN chat_id = ? THEN 0 ELSE 1 END, id DESC
+                    """,
+                    (chat_id, chat_id),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT id, chat_id, question, options, answer_index, created_at
+                    FROM join_verification_questions
+                    WHERE chat_id = ?
+                    ORDER BY id DESC
+                    """,
+                    (chat_id,),
+                ).fetchall()
+        return [self._serialize_verification_question_row(row) for row in rows]
+
+    def create_verification_question(
+        self,
+        *,
+        chat_id: int | None,
+        question: str,
+        options: list[str],
+        answer_index: int,
+    ) -> dict[str, Any]:
+        with self.db.connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO join_verification_questions(chat_id, question, options, answer_index, created_at)
+                VALUES(?, ?, ?, ?, ?)
+                """,
+                (
+                    chat_id,
+                    question,
+                    json.dumps(options, ensure_ascii=False),
+                    answer_index,
+                    to_iso(utc_now()),
+                ),
+            )
+            row = conn.execute(
+                """
+                SELECT id, chat_id, question, options, answer_index, created_at
+                FROM join_verification_questions
+                WHERE id = ?
+                """,
+                (int(cur.lastrowid),),
+            ).fetchone()
+        if row is None:
+            raise RuntimeError("verification_question_create_failed")
+        return self._serialize_verification_question_row(row)
+
+    def _get_accessible_verification_question_row(self, chat_id: int, question_id: int):
+        with self.db.connect() as conn:
+            return conn.execute(
+                """
+                SELECT id, chat_id, question, options, answer_index, created_at
+                FROM join_verification_questions
+                WHERE id = ? AND (chat_id = ? OR chat_id IS NULL)
+                """,
+                (question_id, chat_id),
+            ).fetchone()
+
+    def update_verification_question(
+        self,
+        *,
+        access_chat_id: int,
+        question_id: int,
+        target_chat_id: int | None,
+        question: str,
+        options: list[str],
+        answer_index: int,
+    ) -> dict[str, Any] | None:
+        if self._get_accessible_verification_question_row(access_chat_id, question_id) is None:
+            return None
+        with self.db.connect() as conn:
+            conn.execute(
+                """
+                UPDATE join_verification_questions
+                SET chat_id = ?, question = ?, options = ?, answer_index = ?
+                WHERE id = ?
+                """,
+                (
+                    target_chat_id,
+                    question,
+                    json.dumps(options, ensure_ascii=False),
+                    answer_index,
+                    question_id,
+                ),
+            )
+            row = conn.execute(
+                """
+                SELECT id, chat_id, question, options, answer_index, created_at
+                FROM join_verification_questions
+                WHERE id = ?
+                """,
+                (question_id,),
+            ).fetchone()
+        return self._serialize_verification_question_row(row) if row else None
+
+    def delete_verification_question(self, access_chat_id: int, question_id: int) -> int:
+        if self._get_accessible_verification_question_row(access_chat_id, question_id) is None:
+            return 0
+        with self.db.connect() as conn:
+            cur = conn.execute(
+                "DELETE FROM join_verification_questions WHERE id = ?",
+                (question_id,),
+            )
+        return cur.rowcount
+
     def get_verification_question(self, chat_id: int) -> dict | None:
         """随机取一道验证题：优先群专属题，无则取全局题（chat_id IS NULL）"""
         with self.db.connect() as conn:
@@ -487,7 +621,7 @@ class BotRepository:
                 (chat_id,),
             ).fetchone()
             if row:
-                return dict(row)
+                return self._serialize_verification_question_row(row)
             row = conn.execute(
                 """
                 SELECT id, question, options, answer_index FROM join_verification_questions
@@ -495,7 +629,7 @@ class BotRepository:
                 ORDER BY RANDOM() LIMIT 1
                 """,
             ).fetchone()
-            return dict(row) if row else None
+            return self._serialize_verification_question_row(row) if row else None
 
     def save_verification_log(
         self,
