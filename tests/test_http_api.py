@@ -2,7 +2,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from bot.ai.openai_client import AiWelcomeResult
+from bot.ai.openai_client import AiVerificationQuestion, AiVerificationQuestionBatchResult, AiWelcomeResult
 from bot.api.http_api import Services, create_http_app
 from bot.domain.models import AiDecision, ChatRef, MessageRef, ModerationDecision, UserRef
 from bot.storage.db import Database
@@ -34,6 +34,23 @@ class FakeAiModerator:
         if self.fail_welcome:
             raise RuntimeError("welcome boom")
         return AiWelcomeResult(model="fake-welcome-model", text=f"欢迎 {kwargs['user_display_name']} 加入 {kwargs['chat_title']}")
+
+    async def generate_verification_questions_result(self, **kwargs):
+        return AiVerificationQuestionBatchResult(
+            model="fake-question-model",
+            items=[
+                AiVerificationQuestion(
+                    question="进群后第一件事是什么？",
+                    options=["看群规", "发广告", "刷屏"],
+                    answer_index=0,
+                ),
+                AiVerificationQuestion(
+                    question="群里交流应保持什么态度？",
+                    options=["礼貌友善", "恶意攻击"],
+                    answer_index=0,
+                ),
+            ],
+        )
 
 
 class FakeRuntimeManager:
@@ -262,3 +279,26 @@ def test_verification_question_crud_endpoints(tmp_path):
     )
     assert deleted.status_code == 200
     assert deleted.json()["data"]["deleted"] == 1
+
+
+def test_verification_question_generate_endpoint(tmp_path):
+    app, repo, _ = make_app_bundle(tmp_path)
+    repo.upsert_chat(ChatRef(chat_id=1, type="supergroup", title="测试群"))
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/chats/1/verification/questions/generate",
+        headers={"X-Admin-Token": "admin-token"},
+        json={
+            "scope": "chat",
+            "count": 2,
+            "topic_hint": "群规",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["model"] == "fake-question-model"
+    assert data["count"] == 2
+    assert len(data["items"]) == 2
+    assert data["items"][0]["answer_text"] == "看群规"

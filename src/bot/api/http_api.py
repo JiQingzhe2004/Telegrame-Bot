@@ -125,6 +125,24 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
             "answer_index": answer_index,
         }
 
+    def _parse_verification_generate_payload(chat_id: int, body: dict[str, Any]) -> dict[str, Any]:
+        scope = str(body.get("scope", "chat")).strip().lower() or "chat"
+        if scope not in {"chat", "global"}:
+            raise HTTPException(status_code=400, detail="invalid_scope")
+        try:
+            count = int(body.get("count", 3))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="invalid_count") from exc
+        if count < 1 or count > 5:
+            raise HTTPException(status_code=400, detail="invalid_count")
+        topic_hint = str(body.get("topic_hint", "")).strip()
+        return {
+            "chat_id": None if scope == "global" else chat_id,
+            "scope": scope,
+            "count": count,
+            "topic_hint": topic_hint,
+        }
+
     @app.get("/healthz")
     async def healthz() -> dict[str, Any]:
         state = services.runtime_manager.runtime_state()
@@ -292,6 +310,39 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
             answer_index=payload["answer_index"],
         )
         return ApiEnvelope(ok=True, data=item)
+
+    @app.post("/api/v1/chats/{chat_id}/verification/questions/generate", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def generate_verification_questions(chat_id: int, body: dict[str, Any]) -> ApiEnvelope:
+        chat = _get_known_chat(chat_id)
+        payload = _parse_verification_generate_payload(chat_id, body)
+        settings = services.repo.get_settings(chat_id)
+        try:
+            result = await _get_ai_runtime().generate_verification_questions_result(
+                chat_title=chat.get("title") or "群聊",
+                language=settings.language,
+                count=payload["count"],
+                topic_hint=payload["topic_hint"] or None,
+                chat_type=chat.get("type"),
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=502, detail=f"ai_generate_failed: {exc}") from exc
+        created = [
+            services.repo.create_verification_question(
+                chat_id=payload["chat_id"],
+                question=item.question,
+                options=item.options,
+                answer_index=item.answer_index,
+            )
+            for item in result.items
+        ]
+        return ApiEnvelope(
+            ok=True,
+            data={
+                "model": result.model,
+                "count": len(created),
+                "items": created,
+            },
+        )
 
     @app.put("/api/v1/chats/{chat_id}/verification/questions/{question_id}", dependencies=[Depends(require_active), Depends(auth_admin)])
     async def update_verification_question(chat_id: int, question_id: int, body: dict[str, Any]) -> ApiEnvelope:

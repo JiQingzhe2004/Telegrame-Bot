@@ -78,6 +78,7 @@ export function AdminConsolePage({
   const [lastSyncAt, setLastSyncAt] = useState<Date | null>(null);
   const [permissionChecking, setPermissionChecking] = useState(false);
   const [savingRuntimeConfig, setSavingRuntimeConfig] = useState(false);
+  const [generatingVerificationQuestions, setGeneratingVerificationQuestions] = useState(false);
 
   useEffect(() => writeStorage("bot_member_keyword", memberKeyword), [memberKeyword]);
 
@@ -393,6 +394,22 @@ export function AdminConsolePage({
     }
   };
 
+  const generateVerificationQuestions = async (payload: { scope: "chat" | "global"; count: number; topic_hint?: string }) => {
+    if (!chatId) {
+      throw new Error("请先选择 Chat");
+    }
+    setGeneratingVerificationQuestions(true);
+    try {
+      const result = await api.generateVerificationQuestions(chatId, adminToken, payload);
+      message.success(`AI 已生成 ${result.count} 道题（模型 ${result.model}）`);
+      await verificationQuestionsQuery.refetch();
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    } finally {
+      setGeneratingVerificationQuestions(false);
+    }
+  };
+
   const reloadChats = async () => {
     const out = await chatsQuery.refetch();
     const nextChatId = out.data?.[0] ? String(out.data[0].chat_id) : "";
@@ -557,6 +574,7 @@ export function AdminConsolePage({
           loading={runtimeConfigQuery.isLoading}
           saving={savingRuntimeConfig}
           questionsLoading={verificationQuestionsQuery.isLoading || verificationQuestionsQuery.isFetching}
+          questionsGenerating={generatingVerificationQuestions}
           verificationQuestions={verificationQuestionsQuery.data ?? []}
           chatId={chatId || undefined}
           onSave={saveRuntimeConfig}
@@ -565,6 +583,7 @@ export function AdminConsolePage({
           onCreateQuestion={createVerificationQuestion}
           onUpdateQuestion={updateVerificationQuestion}
           onDeleteQuestion={deleteVerificationQuestion}
+          onGenerateQuestions={generateVerificationQuestions}
         />
       );
     }

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Alert, App as AntApp, Button, Card, Col, Form, Input, Popconfirm, Row, Select, Space, Table, Tag, Typography } from "antd";
+import { Alert, App as AntApp, Button, Card, Col, Form, Input, InputNumber, Popconfirm, Row, Select, Space, Table, Tag, Typography } from "antd";
 import type { VerificationQuestion } from "@/lib/api";
 import { formatTime } from "@/lib/helpers";
 
@@ -13,11 +13,13 @@ type QuestionPayload = {
 type Props = {
   chatId?: string;
   loading: boolean;
+  generating: boolean;
   questionType: "button" | "quiz";
   questions: VerificationQuestion[];
   onCreate: (payload: QuestionPayload) => Promise<void>;
   onUpdate: (questionId: number, payload: QuestionPayload) => Promise<void>;
   onDelete: (questionId: number) => Promise<void>;
+  onGenerate: (payload: { scope: "chat" | "global"; count: number; topic_hint?: string }) => Promise<void>;
 };
 
 type FormValues = {
@@ -44,9 +46,20 @@ function toFormValues(item: VerificationQuestion): FormValues {
   };
 }
 
-export function VerificationQuestionPanel({ chatId, loading, questionType, questions, onCreate, onUpdate, onDelete }: Props) {
+export function VerificationQuestionPanel({
+  chatId,
+  loading,
+  generating,
+  questionType,
+  questions,
+  onCreate,
+  onUpdate,
+  onDelete,
+  onGenerate,
+}: Props) {
   const { message } = AntApp.useApp();
   const [form] = Form.useForm<FormValues>();
+  const [generateForm] = Form.useForm<{ scope: "chat" | "global"; count: number; topic_hint?: string }>();
   const [editingId, setEditingId] = useState<number | null>(null);
   const watched = Form.useWatch([], form) as Partial<FormValues> | undefined;
 
@@ -190,6 +203,63 @@ export function VerificationQuestionPanel({ chatId, loading, questionType, quest
         {questionType === "quiz" && questions.length === 0 ? (
           <Alert type="warning" showIcon message="当前题库为空，quiz 模式下会自动降级成按钮验证。" />
         ) : null}
+        <Card size="small" title="AI 生成题库">
+          <Form
+            form={generateForm}
+            layout="vertical"
+            initialValues={{
+              scope: "chat",
+              count: 3,
+              topic_hint: "",
+            }}
+          >
+            <Row gutter={12}>
+              <Col xs={24} md={8}>
+                <Form.Item label="生成范围" name="scope" rules={[{ required: true, message: "必选" }]}>
+                  <Select
+                    options={[
+                      { label: "当前群", value: "chat" },
+                      { label: "全局题库", value: "global" },
+                    ]}
+                  />
+                </Form.Item>
+              </Col>
+              <Col xs={24} md={8}>
+                <Form.Item label="生成数量" name="count" rules={[{ required: true, message: "必填" }]}>
+                  <InputNumber min={1} max={5} style={{ width: "100%" }} />
+                </Form.Item>
+              </Col>
+              <Col xs={24} md={8}>
+                <Form.Item label="话题提示（可空）" name="topic_hint">
+                  <Input placeholder="例如：群规、技术交流、礼貌发言" />
+                </Form.Item>
+              </Col>
+              <Col xs={24}>
+                <Button
+                  type="primary"
+                  loading={generating}
+                  disabled={!chatId}
+                  onClick={async () => {
+                    try {
+                      const values = await generateForm.validateFields();
+                      await onGenerate({
+                        scope: values.scope,
+                        count: Number(values.count),
+                        topic_hint: values.topic_hint?.trim() || undefined,
+                      });
+                    } catch (error) {
+                      if (error instanceof Error) {
+                        message.error(error.message);
+                      }
+                    }
+                  }}
+                >
+                  使用当前 AI 配置生成题目
+                </Button>
+              </Col>
+            </Row>
+          </Form>
+        </Card>
         <Form
           form={form}
           layout="vertical"

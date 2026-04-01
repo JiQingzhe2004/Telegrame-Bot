@@ -113,3 +113,31 @@ def test_generate_welcome_falls_back_to_chat_completions_for_compatible_base_url
     assert chat_api.calls == 1
     assert result.model == "test-low-model"
     assert "小明" in result.text
+
+
+def test_generate_verification_questions_falls_back_to_chat_completions_for_compatible_base_url():
+    ai = make_ai()
+    responses_api = FakeResponsesApi(RuntimeError("unsupported endpoint"))
+    chat_api = FakeChatCompletionsApi(
+        '```json\n{"questions":[{"question":"进群后先做什么？","options":["看群规","发广告"],"answer_index":0}]}\n```'
+    )
+    ai.client = SimpleNamespace(
+        responses=responses_api,
+        chat=SimpleNamespace(completions=chat_api),
+    )
+
+    result = asyncio.run(
+        ai.generate_verification_questions_result(
+            chat_title="测试群",
+            language="zh",
+            count=1,
+            topic_hint="群规",
+            chat_type="supergroup",
+        )
+    )
+
+    assert responses_api.calls == 1
+    assert chat_api.calls == 1
+    assert result.model == "test-low-model"
+    assert len(result.items) == 1
+    assert result.items[0].question == "进群后先做什么？"

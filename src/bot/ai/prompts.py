@@ -38,6 +38,14 @@ def build_welcome_system_prompt() -> str:
     )
 
 
+def build_verification_question_system_prompt() -> str:
+    return (
+        "You generate Telegram join verification quiz questions. "
+        "Output JSON only. Questions must be short, clear, safe, and easy for normal humans in the target group to answer. "
+        "Avoid external trivia, avoid ambiguous wording, and ensure each question has exactly one correct answer."
+    )
+
+
 def build_welcome_user_prompt(
     chat_title: str,
     user_display_name: str,
@@ -60,4 +68,29 @@ def build_welcome_user_prompt(
         f"{extra}"
         "template_rule=follow the template's intent and key points, but rewrite naturally instead of copying it word for word\n"
         "requirements=<=60 Chinese chars, include user_display_name once, remind reading group rules politely\n"
+    )
+
+
+def build_verification_question_user_prompt(
+    *,
+    chat_title: str,
+    language: str,
+    count: int,
+    topic_hint: str | None = None,
+    chat_type: str | None = None,
+) -> str:
+    extra = ""
+    if chat_type:
+        extra += f"chat_type={chat_type}\n"
+    if topic_hint:
+        extra += f"topic_hint={topic_hint.strip()}\n"
+    return (
+        f"language={language}\n"
+        f"chat_title={chat_title}\n"
+        f"count={count}\n"
+        f"{extra}"
+        "schema=questions:[{question:string,options:[string],answer_index:integer}]\n"
+        "requirements=each question in Chinese, each question <=30 Chinese chars, 2..4 options, exactly one correct answer, "
+        "options should be concise, avoid all-of-the-above/none-of-the-above, avoid sensitive content, "
+        "fit a normal Telegram community onboarding quiz\n"
     )

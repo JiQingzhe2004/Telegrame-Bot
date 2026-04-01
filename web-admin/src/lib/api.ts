@@ -185,6 +185,12 @@ export type VerificationQuestion = {
   created_at: string;
 };
 
+export type VerificationQuestionGenerateResult = {
+  model: string;
+  count: number;
+  items: VerificationQuestion[];
+};
+
 export class ApiError extends Error {
   status: number;
   code: string;
@@ -490,6 +496,18 @@ export class ApiClient {
     return this.request<{ deleted: number }>(`/api/v1/chats/${chatId}/verification/questions/${questionId}`, {
       method: "DELETE",
       headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  generateVerificationQuestions(
+    chatId: string,
+    adminToken: string,
+    payload: { scope: "chat" | "global"; count: number; topic_hint?: string },
+  ) {
+    return this.request<VerificationQuestionGenerateResult>(`/api/v1/chats/${chatId}/verification/questions/generate`, {
+      method: "POST",
+      headers: this.adminHeaders(adminToken),
+      body: JSON.stringify(payload),
     });
   }
 

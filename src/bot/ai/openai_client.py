@@ -10,6 +10,8 @@ from openai import AsyncOpenAI
 from bot.ai.prompts import (
     build_system_prompt,
     build_user_prompt,
+    build_verification_question_system_prompt,
+    build_verification_question_user_prompt,
     build_welcome_system_prompt,
     build_welcome_user_prompt,
 )
@@ -35,6 +37,19 @@ class AiRuntimeConfig:
 class AiWelcomeResult:
     model: str
     text: str
+
+
+@dataclass(frozen=True)
+class AiVerificationQuestion:
+    question: str
+    options: list[str]
+    answer_index: int
+
+
+@dataclass(frozen=True)
+class AiVerificationQuestionBatchResult:
+    model: str
+    items: list[AiVerificationQuestion]
 
 
 @dataclass(frozen=True)
@@ -85,6 +100,42 @@ class OpenAiModerator:
         if context.strike_score >= 2 or context.settings.mode == "strict":
             return self.conf.high_risk_model
         return self.conf.low_risk_model
+
+    @staticmethod
+    def _coerce_verification_questions(data: dict[str, Any]) -> list[AiVerificationQuestion]:
+        raw_items = data.get("questions")
+        if not isinstance(raw_items, list):
+            raise ValueError("invalid verification questions")
+
+        items: list[AiVerificationQuestion] = []
+        for raw in raw_items:
+            if not isinstance(raw, dict):
+                continue
+            question = str(raw.get("question", "")).strip()
+            raw_options = raw.get("options")
+            if not question or not isinstance(raw_options, list):
+                continue
+            options = [str(item).strip() for item in raw_options if str(item).strip()]
+            if len(options) < 2 or len(options) > 4:
+                continue
+            if len(set(options)) != len(options):
+                continue
+            try:
+                answer_index = int(raw.get("answer_index", -1))
+            except (TypeError, ValueError):
+                continue
+            if answer_index < 0 or answer_index >= len(options):
+                continue
+            items.append(
+                AiVerificationQuestion(
+                    question=question[:80],
+                    options=options,
+                    answer_index=answer_index,
+                )
+            )
+        if not items:
+            raise ValueError("invalid verification questions")
+        return items[:10]
 
     @staticmethod
     def _extract_content_text(content: Any) -> str:
@@ -341,3 +392,59 @@ class OpenAiModerator:
             text = text[:180].strip()
         logger.info("ai_welcome_generated model=%s transport=%s", result.model, result.transport)
         return AiWelcomeResult(model=result.model, text=text)
+
+    async def generate_verification_questions_result(
+        self,
+        *,
+        chat_title: str,
+        language: str,
+        count: int = 3,
+        topic_hint: str | None = None,
+        chat_type: str | None = None,
+    ) -> AiVerificationQuestionBatchResult:
+        if not self.client:
+            raise RuntimeError("OPENAI_API_KEY is not configured")
+        safe_count = max(1, min(int(count), 5))
+        model = self.conf.low_risk_model or self.conf.high_risk_model
+        result = await self._request_text(
+            model=model,
+            system_prompt=build_verification_question_system_prompt(),
+            user_prompt=build_verification_question_user_prompt(
+                chat_title=chat_title,
+                language=language,
+                count=safe_count,
+                topic_hint=topic_hint,
+                chat_type=chat_type,
+            ),
+            schema={
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "questions": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "question": {"type": "string"},
+                                "options": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
+                                "answer_index": {"type": "integer"},
+                            },
+                            "required": ["question", "options", "answer_index"],
+                        },
+                    }
+                },
+                "required": ["questions"],
+            },
+        )
+        items = self._coerce_verification_questions(json.loads(self._extract_json_text(result.text)))
+        logger.info(
+            "ai_verification_questions_generated model=%s transport=%s count=%s",
+            result.model,
+            result.transport,
+            len(items),
+        )
+        return AiVerificationQuestionBatchResult(model=result.model, items=items[:safe_count])

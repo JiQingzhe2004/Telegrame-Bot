@@ -8,6 +8,7 @@ type Props = {
   loading: boolean;
   saving: boolean;
   questionsLoading: boolean;
+  questionsGenerating: boolean;
   verificationQuestions: VerificationQuestion[];
   chatId?: string;
   onSave: (payload: {
@@ -33,6 +34,7 @@ type Props = {
   onCreateQuestion: (payload: { scope: "chat" | "global"; question: string; options: string[]; answer_index: number }) => Promise<void>;
   onUpdateQuestion: (questionId: number, payload: { scope: "chat" | "global"; question: string; options: string[]; answer_index: number }) => Promise<void>;
   onDeleteQuestion: (questionId: number) => Promise<void>;
+  onGenerateQuestions: (payload: { scope: "chat" | "global"; count: number; topic_hint?: string }) => Promise<void>;
 };
 
 export function AiConfigPanel({
@@ -40,6 +42,7 @@ export function AiConfigPanel({
   loading,
   saving,
   questionsLoading,
+  questionsGenerating,
   verificationQuestions,
   chatId,
   onSave,
@@ -48,6 +51,7 @@ export function AiConfigPanel({
   onCreateQuestion,
   onUpdateQuestion,
   onDeleteQuestion,
+  onGenerateQuestions,
 }: Props) {
   const [form] = Form.useForm();
   const [moderationText, setModerationText] = useState("这是一条 AI 审计测试消息。");
@@ -323,11 +327,13 @@ export function AiConfigPanel({
         <VerificationQuestionPanel
           chatId={chatId}
           loading={questionsLoading}
+          generating={questionsGenerating}
           questionType={config?.join_verification_question_type ?? "button"}
           questions={verificationQuestions}
           onCreate={onCreateQuestion}
           onUpdate={onUpdateQuestion}
           onDelete={onDeleteQuestion}
+          onGenerate={onGenerateQuestions}
         />
       </Space>
     </Card>
