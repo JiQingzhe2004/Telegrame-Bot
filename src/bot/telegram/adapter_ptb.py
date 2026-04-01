@@ -480,6 +480,7 @@ async def on_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE
                 continue
 
         # 限制发言
+        restrict_ok = True
         try:
             await context.bot.restrict_chat_member(
                 chat_id=chat.id,
@@ -487,9 +488,36 @@ async def on_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE
                 permissions=_restricted_permissions(),
             )
         except TelegramError as exc:
+            restrict_ok = False
             logger.warning(
                 "restrict member failed chat=%s user=%s err=%s", chat.id, joined.id, exc
             )
+            try:
+                await _send_temporary_notice(
+                    context,
+                    chat_id=chat.id,
+                    text=f"{display_name} 的入群验证未生效：机器人无法限制新成员发言，请检查管理员权限。",
+                )
+            except TelegramError as notice_exc:
+                logger.warning(
+                    "send verification setup failure notice failed chat=%s user=%s err=%s",
+                    chat.id,
+                    joined.id,
+                    notice_exc,
+                )
+        if not restrict_ok:
+            try:
+                repo.save_verification_log(
+                    chat_id=chat.id,
+                    user_id=joined.id,
+                    username=joined.username,
+                    result="setup_failed",
+                    attempts=0,
+                    whitelist_bypass=False,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("save verification log failed: %s", exc)
+            continue
 
         # 决定验证类型（quiz 无题库则降级为 button）
         actual_question_type = question_type

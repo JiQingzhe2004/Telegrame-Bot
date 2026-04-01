@@ -10,6 +10,7 @@ from telegram.ext import Application, ContextTypes
 
 from bot.storage.repo import BotRepository
 from bot.system_config import RuntimeConfig
+from bot.telegram.permissions import get_bot_capabilities
 from bot.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
@@ -27,16 +28,14 @@ async def _check_bot_permissions(bot: Bot, chat_id: int) -> list[str]:
     """检查机器人在群内是否缺少关键权限，返回缺失权限列表"""
     issues: list[str] = []
     try:
-        me = await bot.get_me()
-        member = await bot.get_chat_member(chat_id=chat_id, user_id=me.id)
-        perms = getattr(member, "privileges", None) or getattr(member, "can_delete_messages", None)
+        caps = await get_bot_capabilities(bot, chat_id)
         # 逐项检查关键权限
         for attr, label in [
             ("can_delete_messages", "删除消息"),
             ("can_restrict_members", "限制成员"),
             ("can_invite_users", "邀请用户"),
         ]:
-            if not getattr(member, attr, True):
+            if not caps.get(attr, False):
                 issues.append(label)
     except TelegramError as exc:
         logger.warning("permission check failed chat=%s err=%s", chat_id, exc)

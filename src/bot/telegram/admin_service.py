@@ -8,6 +8,7 @@ from telegram import Bot, ChatPermissions
 from telegram.error import TelegramError
 
 from bot.storage.repo import BotRepository
+from bot.telegram.permissions import get_bot_capabilities
 from bot.utils.time import utc_now
 
 
@@ -44,22 +45,7 @@ class TelegramAdminService:
         self.repo = repo
 
     async def _capabilities(self, chat_id: int) -> ChatCapabilityMatrix:
-        me = await self.bot.get_me()
-        member = await self.bot.get_chat_member(chat_id=chat_id, user_id=me.id)
-        return ChatCapabilityMatrix(
-            can_change_info=bool(getattr(member, "can_change_info", False)),
-            can_delete_messages=bool(getattr(member, "can_delete_messages", False)),
-            can_restrict_members=bool(getattr(member, "can_restrict_members", False)),
-            can_invite_users=bool(getattr(member, "can_invite_users", False)),
-            can_pin_messages=bool(getattr(member, "can_pin_messages", False)),
-            can_promote_members=bool(getattr(member, "can_promote_members", False)),
-            can_manage_video_chats=bool(getattr(member, "can_manage_video_chats", False)),
-            can_manage_chat=bool(getattr(member, "can_manage_chat", False)),
-            can_post_stories=bool(getattr(member, "can_post_stories", False)),
-            can_edit_stories=bool(getattr(member, "can_edit_stories", False)),
-            can_delete_stories=bool(getattr(member, "can_delete_stories", False)),
-            is_anonymous=bool(getattr(member, "is_anonymous", False)),
-        )
+        return ChatCapabilityMatrix(**(await get_bot_capabilities(self.bot, chat_id)))
 
     def _deny(self, required: list[str], reason: str) -> AdminActionResult:
         return AdminActionResult(

@@ -49,3 +49,20 @@ def test_delete_message_telegram_error():
     result = asyncio.run(svc.delete_message(chat_id=1, message_id=2))
     assert result.permission_ok is True
     assert result.applied is False
+
+
+def test_owner_bot_has_full_capabilities_for_admin_actions():
+    bot = AsyncMock()
+    bot.get_me.return_value = SimpleNamespace(id=999, username="bot")
+    bot.get_chat_member.return_value = SimpleNamespace(
+        status="creator",
+        is_anonymous=False,
+    )
+    repo = SimpleNamespace(save_admin_action=lambda *args, **kwargs: 1)
+    svc = TelegramAdminService(bot=bot, repo=repo)
+
+    result = asyncio.run(svc.delete_message(chat_id=1, message_id=2))
+
+    assert result.permission_ok is True
+    assert result.applied is True
+    bot.delete_message.assert_awaited_once_with(chat_id=1, message_id=2)

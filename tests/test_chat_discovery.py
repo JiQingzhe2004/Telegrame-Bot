@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from telegram import Chat
+from telegram.error import TelegramError
 
 from bot.domain.models import ChatRef, ModerationDecision
 from bot.domain.moderation import PermissionSnapshot
@@ -292,3 +293,53 @@ def test_join_verify_timeout_cleans_up_and_kicks_member(tmp_path):
     context.bot.ban_chat_member.assert_awaited_once()
     context.bot.unban_chat_member.assert_awaited_once()
     context.bot.send_message.assert_awaited_once_with(chat_id=-100124, text="Bob 未在限时内完成入群验证，已被移出群聊。")
+
+
+def test_new_chat_members_skips_verification_setup_when_restrict_fails(tmp_path):
+    repo = make_repo(tmp_path)
+    update = SimpleNamespace(
+        effective_chat=SimpleNamespace(id=-100125, type=Chat.SUPERGROUP, title="验证群"),
+        effective_message=SimpleNamespace(
+            message_id=88,
+            new_chat_members=[
+                SimpleNamespace(
+                    id=44,
+                    is_bot=False,
+                    username="bob",
+                    first_name="Bob",
+                    last_name=None,
+                    full_name="Bob",
+                )
+            ],
+            reply_text=AsyncMock(),
+        ),
+    )
+    context = SimpleNamespace(
+        application=SimpleNamespace(
+            bot_data={
+                "repo": repo,
+                "runtime_config": SimpleNamespace(
+                    join_verification_enabled=True,
+                    join_verification_timeout_seconds=180,
+                    join_verification_max_attempts=3,
+                    join_verification_question_type="button",
+                    join_verification_whitelist_bypass=True,
+                    join_welcome_enabled=False,
+                ),
+                "pending_join_verifications": {},
+            },
+            job_queue=None,
+        ),
+        bot=SimpleNamespace(
+            restrict_chat_member=AsyncMock(side_effect=TelegramError("telegram forbid")),
+            send_message=AsyncMock(return_value=SimpleNamespace(message_id=302)),
+        ),
+    )
+
+    asyncio.run(on_new_chat_members(update, context))
+
+    assert context.application.bot_data["pending_join_verifications"] == {}
+    context.bot.send_message.assert_awaited_once_with(
+        chat_id=-100125,
+        text="Bob 的入群验证未生效：机器人无法限制新成员发言，请检查管理员权限。",
+    )
