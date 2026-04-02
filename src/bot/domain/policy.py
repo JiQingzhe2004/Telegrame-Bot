@@ -52,9 +52,6 @@ def downgrade_by_permissions(
     if action == "delete" and not can_delete:
         return "warn"
     if action in {"mute", "restrict"} and not can_restrict:
-        # 如果缺少“禁言/限制”权限，但具备“封禁用户”权限，则改走封禁。
-        if can_ban:
-            return "ban"
         if can_delete:
             return "delete"
         return "warn"

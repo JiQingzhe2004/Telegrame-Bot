@@ -32,6 +32,7 @@ async def _check_bot_permissions(bot: Bot, chat_id: int) -> list[str]:
         # 逐项检查关键权限
         for attr, label in [
             ("can_delete_messages", "删除消息"),
+            ("can_restrict_members", "限制成员"),
             ("can_ban_users", "封禁用户"),
             ("can_invite_users", "邀请用户"),
         ]:

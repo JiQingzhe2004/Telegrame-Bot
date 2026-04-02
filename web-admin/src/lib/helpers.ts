@@ -70,8 +70,7 @@ export function formatAdminActionResult(result: AdminActionResult): string {
 
 export function buildPermissionCheck(capabilities?: Record<string, boolean>) {
   const entries = Object.entries(capabilities ?? {});
-  const ignore = new Set(["can_restrict_members"]);
-  const missing = entries.filter(([name, ok]) => !ok && !ignore.has(name)).map(([name]) => name);
+  const missing = entries.filter(([, ok]) => !ok).map(([name]) => name);
   const missingZh = missing.map(translatePermission);
   return {
     missing,
