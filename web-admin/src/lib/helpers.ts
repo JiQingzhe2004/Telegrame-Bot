@@ -39,6 +39,7 @@ const permissionMap: Record<string, string> = {
   can_change_info: "修改群资料",
   can_delete_messages: "删除消息",
   can_restrict_members: "限制成员（禁言/解禁）",
+  can_ban_users: "封禁用户",
   can_invite_users: "邀请用户",
   can_pin_messages: "置顶消息",
   can_promote_members: "管理管理员（提权/降权）",
@@ -69,7 +70,8 @@ export function formatAdminActionResult(result: AdminActionResult): string {
 
 export function buildPermissionCheck(capabilities?: Record<string, boolean>) {
   const entries = Object.entries(capabilities ?? {});
-  const missing = entries.filter(([, ok]) => !ok).map(([name]) => name);
+  const ignore = new Set(["can_restrict_members"]);
+  const missing = entries.filter(([name, ok]) => !ok && !ignore.has(name)).map(([name]) => name);
   const missingZh = missing.map(translatePermission);
   return {
     missing,

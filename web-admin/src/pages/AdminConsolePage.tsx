@@ -502,8 +502,6 @@ export function AdminConsolePage({
   };
 
   const memberActions = {
-    mute: (userId: string, duration: number) => api.adminMuteMember(chatId, adminToken, userId, duration),
-    unmute: (userId: string) => api.adminUnmuteMember(chatId, adminToken, userId),
     ban: (userId: string) => api.adminBanMember(chatId, adminToken, userId),
     unban: (userId: string) => api.adminUnbanMember(chatId, adminToken, userId),
     deleteMessage: (messageId: string) => api.adminDeleteMessage(chatId, adminToken, messageId),

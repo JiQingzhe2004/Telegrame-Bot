@@ -17,6 +17,7 @@ class ChatCapabilityMatrix:
     can_change_info: bool
     can_delete_messages: bool
     can_restrict_members: bool
+    can_ban_users: bool
     can_invite_users: bool
     can_pin_messages: bool
     can_promote_members: bool
@@ -166,95 +167,34 @@ class TelegramAdminService:
             return AdminActionResult(True, ["can_pin_messages"], True, False, str(exc), getattr(exc, "error_code", None))
 
     async def mute_member(self, chat_id: int, user_id: int, duration_seconds: int) -> AdminActionResult:
-        caps = await self._capabilities(chat_id)
-        if not caps.can_restrict_members:
-            return self._deny(["can_restrict_members"], "missing_permission")
-        try:
-            await self.bot.restrict_chat_member(
-                chat_id=chat_id,
-                user_id=user_id,
-                permissions=ChatPermissions(
-                    can_send_messages=False,
-                    can_send_audios=False,
-                    can_send_documents=False,
-                    can_send_photos=False,
-                    can_send_videos=False,
-                    can_send_video_notes=False,
-                    can_send_voice_notes=False,
-                    can_send_polls=False,
-                    can_send_other_messages=False,
-                    can_add_web_page_previews=False,
-                    can_change_info=False,
-                    can_invite_users=False,
-                    can_pin_messages=False,
-                    can_manage_topics=False,
-                ),
-                until_date=utc_now() + timedelta(seconds=duration_seconds),
-            )
-            self.repo.save_admin_action(
-                chat_id,
-                "mute_member",
-                "applied",
-                target={"user_id": user_id},
-                user_id=user_id,
-                duration_seconds=duration_seconds,
-            )
-            return AdminActionResult(True, ["can_restrict_members"], True, True, "applied")
-        except TelegramError as exc:
-            return AdminActionResult(True, ["can_restrict_members"], True, False, str(exc), getattr(exc, "error_code", None))
+        # 该项目希望只保留“封禁/解封”能力，禁用“禁言/解禁”。
+        return self._unsupported("action_disabled_mute_unavailable")
 
     async def unmute_member(self, chat_id: int, user_id: int) -> AdminActionResult:
-        caps = await self._capabilities(chat_id)
-        if not caps.can_restrict_members:
-            return self._deny(["can_restrict_members"], "missing_permission")
-        try:
-            await self.bot.restrict_chat_member(
-                chat_id=chat_id,
-                user_id=user_id,
-                permissions=ChatPermissions(
-                    can_send_messages=True,
-                    can_send_audios=True,
-                    can_send_documents=True,
-                    can_send_photos=True,
-                    can_send_videos=True,
-                    can_send_video_notes=True,
-                    can_send_voice_notes=True,
-                    can_send_polls=True,
-                    can_send_other_messages=True,
-                    can_add_web_page_previews=True,
-                    can_change_info=True,
-                    can_invite_users=True,
-                    can_pin_messages=True,
-                    can_manage_topics=True,
-                ),
-                until_date=utc_now(),
-            )
-            self.repo.save_admin_action(chat_id, "unmute_member", "applied", target={"user_id": user_id}, user_id=user_id)
-            return AdminActionResult(True, ["can_restrict_members"], True, True, "applied")
-        except TelegramError as exc:
-            return AdminActionResult(True, ["can_restrict_members"], True, False, str(exc), getattr(exc, "error_code", None))
+        # 该项目希望只保留“封禁/解封”能力，禁用“禁言/解禁”。
+        return self._unsupported("action_disabled_unmute_unavailable")
 
     async def ban_member(self, chat_id: int, user_id: int) -> AdminActionResult:
         caps = await self._capabilities(chat_id)
-        if not caps.can_restrict_members:
-            return self._deny(["can_restrict_members"], "missing_permission")
+        if not caps.can_ban_users:
+            return self._deny(["can_ban_users"], "missing_permission")
         try:
             await self.bot.ban_chat_member(chat_id=chat_id, user_id=user_id)
             self.repo.save_admin_action(chat_id, "ban_member", "applied", target={"user_id": user_id}, user_id=user_id)
-            return AdminActionResult(True, ["can_restrict_members"], True, True, "applied")
+            return AdminActionResult(True, ["can_ban_users"], True, True, "applied")
         except TelegramError as exc:
-            return AdminActionResult(True, ["can_restrict_members"], True, False, str(exc), getattr(exc, "error_code", None))
+            return AdminActionResult(True, ["can_ban_users"], True, False, str(exc), getattr(exc, "error_code", None))
 
     async def unban_member(self, chat_id: int, user_id: int) -> AdminActionResult:
         caps = await self._capabilities(chat_id)
-        if not caps.can_restrict_members:
-            return self._deny(["can_restrict_members"], "missing_permission")
+        if not caps.can_ban_users:
+            return self._deny(["can_ban_users"], "missing_permission")
         try:
             await self.bot.unban_chat_member(chat_id=chat_id, user_id=user_id, only_if_banned=False)
             self.repo.save_admin_action(chat_id, "unban_member", "applied", target={"user_id": user_id}, user_id=user_id)
-            return AdminActionResult(True, ["can_restrict_members"], True, True, "applied")
+            return AdminActionResult(True, ["can_ban_users"], True, True, "applied")
         except TelegramError as exc:
-            return AdminActionResult(True, ["can_restrict_members"], True, False, str(exc), getattr(exc, "error_code", None))
+            return AdminActionResult(True, ["can_ban_users"], True, False, str(exc), getattr(exc, "error_code", None))
 
     async def create_invite_link(self, chat_id: int, name: str | None = None) -> AdminActionResult:
         caps = await self._capabilities(chat_id)

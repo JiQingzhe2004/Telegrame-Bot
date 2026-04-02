@@ -9,6 +9,7 @@ CAPABILITY_FIELDS = (
     "can_change_info",
     "can_delete_messages",
     "can_restrict_members",
+    "can_ban_users",
     "can_invite_users",
     "can_pin_messages",
     "can_promote_members",
@@ -28,6 +29,9 @@ def extract_chat_capabilities(member: Any) -> dict[str, bool]:
         for field in CAPABILITY_FIELDS
     }
     caps["is_anonymous"] = bool(getattr(member, "is_anonymous", False))
+    # Telegram “封禁用户”与“限制成员（禁言/解禁）”在不同端/版本上可能映射到不同字段。
+    # 为了尽量兼容：如果具备限制成员权限，则默认视为具备封禁用户权限。
+    caps["can_ban_users"] = bool(caps.get("can_ban_users", False) or caps.get("can_restrict_members", False))
     return caps
 
 
@@ -42,7 +46,7 @@ async def get_permission_snapshot(bot, chat_id: int) -> PermissionSnapshot:
     return PermissionSnapshot(
         can_delete_messages=caps["can_delete_messages"],
         can_restrict_members=caps["can_restrict_members"],
-        can_ban_users=caps["can_restrict_members"],
+        can_ban_users=caps.get("can_ban_users", caps["can_restrict_members"]),
     )
 
 

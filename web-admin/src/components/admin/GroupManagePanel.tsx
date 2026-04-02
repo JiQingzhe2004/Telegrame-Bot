@@ -16,8 +16,6 @@ type Props = {
   setMemberKeyword: (value: string) => void;
   requestMembersRefresh: () => Promise<void>;
   apiActions: {
-    mute: (userId: string, duration: number) => Promise<AdminActionResult>;
-    unmute: (userId: string) => Promise<AdminActionResult>;
     ban: (userId: string) => Promise<AdminActionResult>;
     unban: (userId: string) => Promise<AdminActionResult>;
     deleteMessage: (messageId: string) => Promise<AdminActionResult>;
@@ -44,7 +42,6 @@ export function GroupManagePanel({
   apiActions,
 }: Props) {
   const [targetUserId, setTargetUserId] = useState("");
-  const [muteSeconds, setMuteSeconds] = useState(600);
   const [targetMessageId, setTargetMessageId] = useState("");
   const [inviteName, setInviteName] = useState("");
   const [inviteLink, setInviteLink] = useState("");
@@ -53,7 +50,9 @@ export function GroupManagePanel({
   const [profileDescription, setProfileDescription] = useState(data.overview?.chat.description ?? "");
 
   const capabilities = data.overview?.capabilities ?? {};
-  const missingCapabilities = Object.entries(capabilities).filter(([, ok]) => !ok).map(([name]) => translatePermission(name));
+  const missingCapabilities = Object.entries(capabilities)
+    .filter(([name, ok]) => !ok && name !== "can_restrict_members")
+    .map(([name]) => translatePermission(name));
 
   const withDangerConfirm = (content: string, action: () => Promise<void>) => {
     Modal.confirm({
@@ -88,9 +87,6 @@ export function GroupManagePanel({
             <Button size="small" onClick={() => setTargetUserId(String(row.user_id))}>
               选为目标
             </Button>
-            <Button size="small" onClick={() => void actions.runAction(() => apiActions.mute(String(row.user_id), muteSeconds), "禁言成功")}>
-              禁言
-            </Button>
             <Button
               size="small"
               danger
@@ -106,7 +102,7 @@ export function GroupManagePanel({
         ),
       },
     ],
-    [actions, apiActions, chatId, muteSeconds],
+    [actions, apiActions, chatId],
   );
 
   return (
@@ -130,13 +126,8 @@ export function GroupManagePanel({
             />
           </Col>
           <Col xs={24} md={8}>
-            <Typography.Text type="secondary">禁言时长（秒）</Typography.Text>
-            <Input type="number" value={muteSeconds} onChange={(e) => setMuteSeconds(Number(e.target.value))} />
-          </Col>
-          <Col xs={24} md={8} style={{ display: "flex", alignItems: "end" }}>
+          <Col xs={24} md={16} style={{ display: "flex", alignItems: "end" }}>
             <Space wrap>
-              <Button onClick={() => void actions.runAction(() => apiActions.mute(targetUserId, muteSeconds), "禁言成功")}>禁言</Button>
-              <Button onClick={() => void actions.runAction(() => apiActions.unmute(targetUserId), "解除禁言成功")}>解禁言</Button>
               <Button
                 danger
                 disabled={!targetUserId}
