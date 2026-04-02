@@ -130,7 +130,6 @@ export function GroupManagePanel({
             />
           </Col>
           <Col xs={24} md={8}>
-          <Col xs={24} md={8}>
             <Typography.Text type="secondary">禁言时长（秒）</Typography.Text>
             <Input type="number" value={muteSeconds} onChange={(e) => setMuteSeconds(Number(e.target.value))} />
           </Col>
