@@ -131,3 +131,14 @@ def test_list_members_includes_current_status_from_telegram():
     assert len(rows) == 1
     assert rows[0]["current_status"] == "restricted"
     assert rows[0]["current_status_until_date"] is None
+
+
+def test_kick_member_temporarily_bans_then_unbans():
+    svc, bot = make_service()
+
+    result = asyncio.run(svc.kick_member(chat_id=1, user_id=2))
+
+    assert result.permission_ok is True
+    assert result.applied is True
+    bot.ban_chat_member.assert_awaited_once()
+    bot.unban_chat_member.assert_awaited_once_with(chat_id=1, user_id=2, only_if_banned=True)

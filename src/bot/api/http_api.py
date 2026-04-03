@@ -562,6 +562,12 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
         result = await svc.ban_member(chat_id, user_id)
         return ApiEnvelope(ok=True, data=result.__dict__)
 
+    @app.post("/api/v1/chats/{chat_id}/admin/members/{user_id}/kick", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def admin_kick_member(chat_id: int, user_id: int) -> ApiEnvelope:
+        svc = _admin_service()
+        result = await svc.kick_member(chat_id, user_id)
+        return ApiEnvelope(ok=True, data=result.__dict__)
+
     @app.post("/api/v1/chats/{chat_id}/admin/members/{user_id}/unban", dependencies=[Depends(require_active), Depends(auth_admin)])
     async def admin_unban_member(chat_id: int, user_id: int) -> ApiEnvelope:
         svc = _admin_service()

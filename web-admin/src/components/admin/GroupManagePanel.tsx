@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Button, Card, Col, Divider, Form, Input, Modal, Row, Space, Switch, Tabs, Tag, Typography } from "antd";
+import { Button, Card, Form, Input, Modal, Space, Switch, Tabs, Tag, Typography, message, Segmented } from "antd";
 import { ProTable, type ProColumns } from "@ant-design/pro-components";
 import type { AdminActionResult, ChatMemberBrief } from "@/lib/api";
 import type { AdminActions, AdminDataBundle } from "@/components/admin/types";
@@ -16,9 +16,11 @@ type Props = {
   setMemberKeyword: (value: string) => void;
   requestMembersRefresh: () => Promise<void>;
   apiActions: {
+    getMember: (userId: string) => Promise<AdminActionResult>;
     mute: (userId: string, duration: number) => Promise<AdminActionResult>;
     unmute: (userId: string) => Promise<AdminActionResult>;
     ban: (userId: string) => Promise<AdminActionResult>;
+    kick: (userId: string) => Promise<AdminActionResult>;
     unban: (userId: string) => Promise<AdminActionResult>;
     deleteMessage: (messageId: string) => Promise<AdminActionResult>;
     pinMessage: (messageId: string) => Promise<AdminActionResult>;
@@ -44,24 +46,52 @@ export function GroupManagePanel({
   apiActions,
 }: Props) {
   const [targetUserId, setTargetUserId] = useState("");
-  const [muteSeconds, setMuteSeconds] = useState(600);
   const [targetMessageId, setTargetMessageId] = useState("");
   const [inviteName, setInviteName] = useState("");
   const [inviteLink, setInviteLink] = useState("");
   const [adminTitle, setAdminTitle] = useState("");
   const [profileTitle, setProfileTitle] = useState(data.overview?.chat.title ?? "");
   const [profileDescription, setProfileDescription] = useState(data.overview?.chat.description ?? "");
+  const [muteSeconds, setMuteSeconds] = useState(600);
+  const [memberDialogOpen, setMemberDialogOpen] = useState(false);
+  const [activeMember, setActiveMember] = useState<ChatMemberBrief | null>(null);
+  const [refreshingMemberId, setRefreshingMemberId] = useState<string>("");
+  const [memberActionMenu, setMemberActionMenu] = useState<"restrict" | "ban" | "status">("restrict");
 
   const capabilities = data.overview?.capabilities ?? {};
   const missingCapabilities = Object.entries(capabilities).filter(([, ok]) => !ok).map(([name]) => translatePermission(name));
 
-  const withDangerConfirm = (content: string, action: () => Promise<void>) => {
-    Modal.confirm({
-      title: "二次确认",
-      content,
-      okType: "danger",
-      onOk: action,
-    });
+  const openMemberDialog = (member: ChatMemberBrief) => {
+    setActiveMember(member);
+    setTargetUserId(String(member.user_id));
+    setMemberActionMenu("restrict");
+    setMemberDialogOpen(true);
+  };
+
+  const closeMemberDialog = () => {
+    setMemberDialogOpen(false);
+    setActiveMember(null);
+  };
+
+  const refreshSingleMember = async (member: ChatMemberBrief) => {
+    const userId = String(member.user_id);
+    setRefreshingMemberId(userId);
+    try {
+      const result = await apiActions.getMember(userId);
+      const status = String(result.data?.status ?? member.current_status ?? "unknown");
+      message.success(`用户状态已刷新：${translateChatMemberStatus(status)}`);
+      await requestMembersRefresh();
+    } catch {
+      message.error("刷新用户状态失败");
+    } finally {
+      setRefreshingMemberId("");
+    }
+  };
+
+  const handleMemberAction = async (runner: () => Promise<AdminActionResult>, successText: string) => {
+    await actions.runAction(runner, successText);
+    await requestMembersRefresh();
+    closeMemberDialog();
   };
 
   const columns: ProColumns<ChatMemberBrief>[] = useMemo(
@@ -92,9 +122,7 @@ export function GroupManagePanel({
       {
         title: "最后活跃",
         dataIndex: "last_message_at",
-        render: (_, row) => (
-          <Typography.Text type="secondary">{formatTime(row.last_message_at)}</Typography.Text>
-        ),
+        render: (_, row) => <Typography.Text type="secondary">{formatTime(row.last_message_at)}</Typography.Text>,
       },
       {
         title: "当前状态",
@@ -130,85 +158,29 @@ export function GroupManagePanel({
       {
         title: "快捷操作",
         key: "actions",
+        width: 140,
         render: (_, row) => (
-          <Space wrap size={[8, 8]}>
-            <Button size="small" onClick={() => setTargetUserId(String(row.user_id))}>
-              选为目标
-            </Button>
-            <Button size="small" onClick={() => void actions.runAction(() => apiActions.mute(String(row.user_id), muteSeconds), "禁言成功")}>
-              禁言
+          <Space split={<Typography.Text type="secondary">|</Typography.Text>} size={4}>
+            <Button type="link" size="small" onClick={() => openMemberDialog(row)}>
+              操作
             </Button>
             <Button
+              type="link"
               size="small"
-              danger
-              onClick={() =>
-                withDangerConfirm(`确认封禁 chat=${chatId}, user=${row.user_id} ?`, () =>
-                  actions.runAction(() => apiActions.ban(String(row.user_id)), "封禁成功"),
-                )
-              }
+              loading={refreshingMemberId === String(row.user_id)}
+              onClick={() => void refreshSingleMember(row)}
             >
-              封禁
+              刷新
             </Button>
           </Space>
         ),
       },
     ],
-    [actions, apiActions, chatId, muteSeconds],
+    [refreshingMemberId],
   );
 
   return (
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
-      <Card
-        title="操作目标"
-        extra={
-          <Space>
-            <Tag color="blue">chat: {chatId}</Tag>
-            <Tag color={targetUserId ? "green" : "default"}>{targetUserId ? `目标: ${targetUserId}` : "未选目标"}</Tag>
-          </Space>
-        }
-      >
-        <Row gutter={12}>
-          <Col xs={24} md={8}>
-            <Typography.Text type="secondary">目标用户 ID</Typography.Text>
-            <UserLazySelect
-              members={data.members}
-              value={targetUserId}
-              onChange={setTargetUserId}
-            />
-          </Col>
-          <Col xs={24} md={8}>
-            <Typography.Text type="secondary">禁言时长（秒）</Typography.Text>
-            <Input type="number" value={muteSeconds} onChange={(e) => setMuteSeconds(Number(e.target.value))} />
-          </Col>
-          <Col xs={24} md={16} style={{ display: "flex", alignItems: "end" }}>
-            <Space wrap>
-              <Button onClick={() => void actions.runAction(() => apiActions.mute(targetUserId, muteSeconds), "禁言成功")}>禁言</Button>
-              <Button onClick={() => void actions.runAction(() => apiActions.unmute(targetUserId), "解除禁言成功")}>解禁言</Button>
-              <Button
-                danger
-                disabled={!targetUserId}
-                onClick={() =>
-                  withDangerConfirm(`确认封禁 chat=${chatId}, user=${targetUserId} ?`, () =>
-                    actions.runAction(() => apiActions.ban(targetUserId), "封禁成功"),
-                  )
-                }
-              >
-                封禁
-              </Button>
-              <Button disabled={!targetUserId} onClick={() => void actions.runAction(() => apiActions.unban(targetUserId), "解封成功")}>
-                解封
-              </Button>
-            </Space>
-          </Col>
-        </Row>
-        <Divider style={{ margin: "14px 0" }} />
-        {missingCapabilities.length > 0 ? (
-          <Typography.Text style={{ color: "#d46b08", marginTop: 12, display: "inline-block" }}>
-            当前缺少权限：{missingCapabilities.join("、")}。相关动作可能降级或失败。
-          </Typography.Text>
-        ) : null}
-      </Card>
-
       <Card
         title="成员列表"
         extra={
@@ -219,7 +191,14 @@ export function GroupManagePanel({
           </Space>
         }
       >
-        <Typography.Paragraph type="secondary">仅展示机器人实际收到过消息、或已被处置过的用户；这不是 Telegram 全量成员列表。</Typography.Paragraph>
+        <Typography.Paragraph type="secondary">
+          仅展示机器人实际收到过消息、或已被处置过的用户；这不是 Telegram 全量成员列表。
+        </Typography.Paragraph>
+        {missingCapabilities.length > 0 ? (
+          <Typography.Text style={{ color: "#d46b08", marginBottom: 12, display: "inline-block" }}>
+            当前缺少权限：{missingCapabilities.join("、")}。相关动作可能降级或失败。
+          </Typography.Text>
+        ) : null}
         <ProTable<ChatMemberBrief>
           className="member-table"
           rowKey="user_id"
@@ -242,6 +221,111 @@ export function GroupManagePanel({
           ]}
         />
       </Card>
+
+      <Modal
+        title={activeMember ? `用户操作：${activeMember.first_name ?? activeMember.username ?? activeMember.user_id}` : "用户操作"}
+        open={memberDialogOpen}
+        onCancel={closeMemberDialog}
+        footer={null}
+        destroyOnHidden
+      >
+        <Space direction="vertical" size={16} style={{ width: "100%" }}>
+          {activeMember ? (
+            <Card size="small">
+              <Space direction="vertical" size={4}>
+                <Typography.Text strong>
+                  {`${activeMember.first_name ?? ""} ${activeMember.last_name ?? ""}`.trim() || activeMember.username || "-"}
+                </Typography.Text>
+                <Typography.Text type="secondary">User ID: {activeMember.user_id}</Typography.Text>
+                <Typography.Text type="secondary">
+                  当前状态：{translateChatMemberStatus(activeMember.current_status)}
+                </Typography.Text>
+              </Space>
+            </Card>
+          ) : null}
+          <Segmented
+            block
+            value={memberActionMenu}
+            onChange={(value) => setMemberActionMenu(value as "restrict" | "ban" | "status")}
+            options={[
+              { label: "禁言管理", value: "restrict" },
+              { label: "封禁管理", value: "ban" },
+              { label: "状态信息", value: "status" },
+            ]}
+          />
+          {memberActionMenu === "restrict" ? (
+            <Space direction="vertical" size={12} style={{ width: "100%" }}>
+              <Space wrap>
+                <Typography.Text type="secondary">禁言时长（秒）</Typography.Text>
+                <Input style={{ width: 180 }} type="number" value={muteSeconds} onChange={(e) => setMuteSeconds(Number(e.target.value))} />
+              </Space>
+              <Space wrap>
+                <Button
+                  onClick={() =>
+                    void handleMemberAction(() => apiActions.mute(String(activeMember?.user_id ?? ""), muteSeconds), "禁言成功")
+                  }
+                  disabled={!activeMember}
+                >
+                  禁言
+                </Button>
+                <Button
+                  onClick={() =>
+                    void handleMemberAction(() => apiActions.unmute(String(activeMember?.user_id ?? "")), "解除禁言成功")
+                  }
+                  disabled={!activeMember}
+                >
+                  解禁言
+                </Button>
+              </Space>
+            </Space>
+          ) : null}
+          {memberActionMenu === "ban" ? (
+            <Space direction="vertical" size={12} style={{ width: "100%" }}>
+              <Typography.Text type="secondary">这里是高风险动作，请确认后再执行。</Typography.Text>
+              <Space wrap>
+                <Button
+                  danger
+                  onClick={() =>
+                    void handleMemberAction(() => apiActions.ban(String(activeMember?.user_id ?? "")), "封禁成功")
+                  }
+                  disabled={!activeMember}
+                >
+                  封禁
+                </Button>
+                <Button
+                  danger
+                  onClick={() =>
+                    void handleMemberAction(() => apiActions.kick(String(activeMember?.user_id ?? "")), "踢出群成功")
+                  }
+                  disabled={!activeMember}
+                >
+                  踢出群
+                </Button>
+                <Button
+                  onClick={() =>
+                    void handleMemberAction(() => apiActions.unban(String(activeMember?.user_id ?? "")), "解封成功")
+                  }
+                  disabled={!activeMember}
+                >
+                  解封
+                </Button>
+              </Space>
+            </Space>
+          ) : null}
+          {memberActionMenu === "status" ? (
+            <Space direction="vertical" size={8} style={{ width: "100%" }}>
+              <Typography.Text>当前状态：{translateChatMemberStatus(activeMember?.current_status)}</Typography.Text>
+              <Typography.Text type="secondary">
+                状态截止：{activeMember?.current_status_until_date ? formatTime(activeMember.current_status_until_date) : "无"}
+              </Typography.Text>
+              <Typography.Text type="secondary">
+                最后活跃：{formatTime(activeMember?.last_message_at)}
+              </Typography.Text>
+              <Typography.Text type="secondary">违规分：{activeMember?.strike_score ?? 0}</Typography.Text>
+            </Space>
+          ) : null}
+        </Space>
+      </Modal>
 
       <Tabs
         items={[
@@ -288,11 +372,7 @@ export function GroupManagePanel({
               <Card>
                 <Form layout="vertical">
                   <Form.Item label="管理员用户 ID">
-                    <UserLazySelect
-                      members={data.members}
-                      value={targetUserId}
-                      onChange={setTargetUserId}
-                    />
+                    <UserLazySelect members={data.members} value={targetUserId} onChange={setTargetUserId} />
                   </Form.Item>
                   <Form.Item label="管理员头衔">
                     <Input value={adminTitle} onChange={(e) => setAdminTitle(e.target.value)} />
@@ -302,9 +382,12 @@ export function GroupManagePanel({
                       danger
                       disabled={!targetUserId}
                       onClick={() =>
-                        withDangerConfirm(`确认提权 chat=${chatId}, user=${targetUserId} ?`, () =>
-                          actions.runAction(() => apiActions.promote(targetUserId), "提权成功"),
-                        )
+                        Modal.confirm({
+                          title: "二次确认",
+                          content: `确认提权 chat=${chatId}, user=${targetUserId} ?`,
+                          okType: "danger",
+                          onOk: () => actions.runAction(() => apiActions.promote(targetUserId), "提权成功"),
+                        })
                       }
                     >
                       提升管理员
@@ -313,9 +396,12 @@ export function GroupManagePanel({
                       danger
                       disabled={!targetUserId}
                       onClick={() =>
-                        withDangerConfirm(`确认降权 chat=${chatId}, user=${targetUserId} ?`, () =>
-                          actions.runAction(() => apiActions.demote(targetUserId), "降权成功"),
-                        )
+                        Modal.confirm({
+                          title: "二次确认",
+                          content: `确认降权 chat=${chatId}, user=${targetUserId} ?`,
+                          okType: "danger",
+                          onOk: () => actions.runAction(() => apiActions.demote(targetUserId), "降权成功"),
+                        })
                       }
                     >
                       移除管理员

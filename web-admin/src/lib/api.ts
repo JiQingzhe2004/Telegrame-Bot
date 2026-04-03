@@ -623,6 +623,13 @@ export class ApiClient {
     });
   }
 
+  adminKickMember(chatId: string, adminToken: string, userId: string) {
+    return this.request<AdminActionResult>(`/api/v1/chats/${chatId}/admin/members/${userId}/kick`, {
+      method: "POST",
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
   adminUnbanMember(chatId: string, adminToken: string, userId: string) {
     return this.request<AdminActionResult>(`/api/v1/chats/${chatId}/admin/members/${userId}/unban`, {
       method: "POST",

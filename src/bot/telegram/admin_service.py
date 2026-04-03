@@ -272,6 +272,22 @@ class TelegramAdminService:
         except TelegramError as exc:
             return self._telegram_error(exc)
 
+    async def kick_member(self, chat_id: int, user_id: int) -> AdminActionResult:
+        caps = await self._capabilities(chat_id)
+        if not caps.can_restrict_members:
+            return self._deny(["can_restrict_members"], "missing_permission")
+        try:
+            await self.bot.ban_chat_member(
+                chat_id=chat_id,
+                user_id=user_id,
+                until_date=utc_now() + timedelta(minutes=1),
+            )
+            await self.bot.unban_chat_member(chat_id=chat_id, user_id=user_id, only_if_banned=True)
+            self.repo.save_admin_action(chat_id, "kick_member", "applied", target={"user_id": user_id}, user_id=user_id)
+            return self._applied()
+        except TelegramError as exc:
+            return self._telegram_error(exc)
+
     async def create_invite_link(self, chat_id: int, name: str | None = None) -> AdminActionResult:
         caps = await self._capabilities(chat_id)
         if not caps.can_invite_users:

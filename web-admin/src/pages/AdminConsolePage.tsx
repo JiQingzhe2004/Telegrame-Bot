@@ -502,9 +502,11 @@ export function AdminConsolePage({
   };
 
   const memberActions = {
+    getMember: (userId: string) => api.adminGetMember(chatId, adminToken, userId),
     mute: (userId: string, duration: number) => api.adminMuteMember(chatId, adminToken, userId, duration),
     unmute: (userId: string) => api.adminUnmuteMember(chatId, adminToken, userId),
     ban: (userId: string) => api.adminBanMember(chatId, adminToken, userId),
+    kick: (userId: string) => api.adminKickMember(chatId, adminToken, userId),
     unban: (userId: string) => api.adminUnbanMember(chatId, adminToken, userId),
     deleteMessage: (messageId: string) => api.adminDeleteMessage(chatId, adminToken, messageId),
     pinMessage: (messageId: string) => api.adminPinMessage(chatId, adminToken, messageId),

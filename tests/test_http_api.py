@@ -71,6 +71,7 @@ class FakeRuntimeManager:
         )
         self._tg_app = SimpleNamespace(
             bot=SimpleNamespace(
+                get_me=AsyncMock(return_value=SimpleNamespace(id=999)),
                 get_chat_member=AsyncMock(return_value=SimpleNamespace(status="member", until_date=None))
             )
         )
@@ -333,3 +334,35 @@ def test_admin_members_endpoint_exposes_current_status(tmp_path):
     assert row["user_id"] == 2
     assert row["current_status"] == "restricted"
     assert row["current_status_until_date"] is None
+
+
+def test_admin_kick_member_endpoint(tmp_path):
+    app, repo, runtime_manager = make_app_bundle(tmp_path)
+    repo.upsert_chat(ChatRef(chat_id=1, type="supergroup", title="测试群"))
+    runtime_manager._tg_app.bot.get_chat_member = AsyncMock(
+        return_value=SimpleNamespace(
+            status="administrator",
+            can_change_info=True,
+            can_delete_messages=True,
+            can_restrict_members=True,
+            can_invite_users=True,
+            can_pin_messages=True,
+            can_promote_members=True,
+            can_manage_video_chats=True,
+            can_manage_chat=True,
+            can_post_stories=False,
+            can_edit_stories=False,
+            can_delete_stories=False,
+            is_anonymous=False,
+        )
+    )
+    runtime_manager._tg_app.bot.ban_chat_member = AsyncMock(return_value=True)
+    runtime_manager._tg_app.bot.unban_chat_member = AsyncMock(return_value=True)
+    client = TestClient(app)
+
+    response = client.post("/api/v1/chats/1/admin/members/2/kick", headers={"X-Admin-Token": "admin-token"})
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["applied"] is True
+    assert data["permission_ok"] is True
