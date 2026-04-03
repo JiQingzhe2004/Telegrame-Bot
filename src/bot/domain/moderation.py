@@ -161,12 +161,22 @@ class Enforcer:
                 labels.append(label)
         return "、".join(labels) if labels else "违反群规"
 
-    def _build_notice(self, message: MessageRef, decision: ModerationDecision, action: ActionType, downgraded: bool) -> str:
+    def _build_notice(
+        self,
+        message: MessageRef,
+        decision: ModerationDecision,
+        action: ActionType,
+        downgraded: bool,
+        *,
+        message_deleted: bool = False,
+    ) -> str:
         mention = self._user_mention(message)
         reasons = self._format_reasons(decision)
         action_label = ACTION_LABELS.get(action, "处理")
         duration_text = self._format_duration(decision.duration_seconds)
-        if action == "mute" and duration_text:
+        if action == "warn" and message_deleted:
+            action_text = "已被警告，发送的消息已被删除"
+        elif action == "mute" and duration_text:
             action_text = f"已被禁言 {duration_text}"
         elif action == "restrict" and duration_text:
             action_text = f"已被限制发言 {duration_text}"
@@ -179,8 +189,23 @@ class Enforcer:
             downgraded_text = f"（因机器人权限限制，已从{ACTION_LABELS.get(decision.final_action, decision.final_action)}降级为{action_label}）"
         return f"{mention} {action_text}。原因：{reasons}{downgraded_text}"
 
-    async def _send_notice(self, bot: Bot, message: MessageRef, decision: ModerationDecision, action: ActionType, downgraded: bool) -> None:
-        notice = self._build_notice(message, decision, action, downgraded)
+    async def _send_notice(
+        self,
+        bot: Bot,
+        message: MessageRef,
+        decision: ModerationDecision,
+        action: ActionType,
+        downgraded: bool,
+        *,
+        message_deleted: bool = False,
+    ) -> None:
+        notice = self._build_notice(
+            message,
+            decision,
+            action,
+            downgraded,
+            message_deleted=message_deleted,
+        )
         await bot.send_message(chat_id=message.chat_id, text=notice, parse_mode="HTML")
 
     async def apply(
@@ -202,7 +227,18 @@ class Enforcer:
 
         try:
             if action == "warn":
-                await self._send_notice(bot, message, decision, action, downgraded)
+                message_deleted = False
+                if perms.can_delete_messages:
+                    await bot.delete_message(chat_id=message.chat_id, message_id=message.message_id)
+                    message_deleted = True
+                await self._send_notice(
+                    bot,
+                    message,
+                    decision,
+                    action,
+                    downgraded,
+                    message_deleted=message_deleted,
+                )
             elif action == "delete":
                 await bot.delete_message(chat_id=message.chat_id, message_id=message.message_id)
                 await self._send_notice(bot, message, decision, action, downgraded)

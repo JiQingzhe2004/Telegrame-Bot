@@ -172,6 +172,8 @@ export type ChatMemberBrief = {
   last_name: string | null;
   last_message_at: string | null;
   strike_score: number;
+  current_status: string | null;
+  current_status_until_date: string | null;
 };
 
 export type VerificationQuestion = {

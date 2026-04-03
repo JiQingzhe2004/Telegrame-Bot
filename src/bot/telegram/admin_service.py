@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import asdict, dataclass
 from datetime import timedelta
 from typing import Any
@@ -9,7 +10,7 @@ from telegram.error import TelegramError
 
 from bot.storage.repo import BotRepository
 from bot.telegram.permissions import get_bot_capabilities
-from bot.utils.time import utc_now
+from bot.utils.time import to_iso, utc_now
 
 
 @dataclass(frozen=True)
@@ -57,6 +58,26 @@ class TelegramAdminService:
             reason=reason,
         )
 
+    def _applied(self, *, data: dict[str, Any] | None = None) -> AdminActionResult:
+        return AdminActionResult(
+            action_supported=True,
+            permission_required=[],
+            permission_ok=True,
+            applied=True,
+            reason="applied",
+            data=data,
+        )
+
+    def _telegram_error(self, exc: TelegramError) -> AdminActionResult:
+        return AdminActionResult(
+            action_supported=True,
+            permission_required=[],
+            permission_ok=True,
+            applied=False,
+            reason=str(exc),
+            telegram_error_code=getattr(exc, "error_code", None),
+        )
+
     def _unsupported(self, reason: str) -> AdminActionResult:
         return AdminActionResult(
             action_supported=False,
@@ -91,6 +112,29 @@ class TelegramAdminService:
             ],
             "capabilities": asdict(caps),
         }
+
+    async def _get_member_status_snapshot(self, chat_id: int, user_id: int) -> dict[str, Any]:
+        try:
+            member = await self.bot.get_chat_member(chat_id=chat_id, user_id=user_id)
+            until_date = getattr(member, "until_date", None)
+            return {
+                "current_status": str(getattr(member, "status", "") or "unknown"),
+                "current_status_until_date": to_iso(until_date) if until_date else None,
+            }
+        except TelegramError:
+            return {
+                "current_status": "unknown",
+                "current_status_until_date": None,
+            }
+
+    async def list_members(self, chat_id: int, limit: int = 200, query: str | None = None) -> list[dict[str, Any]]:
+        rows = self.repo.list_chat_members(chat_id=chat_id, limit=limit, query=query)
+
+        async def enrich(row: dict[str, Any]) -> dict[str, Any]:
+            status = await self._get_member_status_snapshot(chat_id, int(row["user_id"]))
+            return {**row, **status}
+
+        return await asyncio.gather(*(enrich(dict(row)) for row in rows))
 
     async def get_member(self, chat_id: int, user_id: int) -> AdminActionResult:
         try:
@@ -129,9 +173,9 @@ class TelegramAdminService:
             if description is not None:
                 await self.bot.set_chat_description(chat_id=chat_id, description=description.strip() or None)
             self.repo.save_admin_action(chat_id, "update_profile", "applied", target={"title": title, "description": description})
-            return AdminActionResult(True, ["can_change_info"], True, True, "applied")
+            return self._applied()
         except TelegramError as exc:
-            return AdminActionResult(True, ["can_change_info"], True, False, str(exc), getattr(exc, "error_code", None))
+            return self._telegram_error(exc)
 
     async def delete_message(self, chat_id: int, message_id: int) -> AdminActionResult:
         caps = await self._capabilities(chat_id)
@@ -140,9 +184,9 @@ class TelegramAdminService:
         try:
             await self.bot.delete_message(chat_id=chat_id, message_id=message_id)
             self.repo.save_admin_action(chat_id, "delete_message", "applied", target={"message_id": message_id}, message_id=message_id)
-            return AdminActionResult(True, ["can_delete_messages"], True, True, "applied")
+            return self._applied()
         except TelegramError as exc:
-            return AdminActionResult(True, ["can_delete_messages"], True, False, str(exc), getattr(exc, "error_code", None))
+            return self._telegram_error(exc)
 
     async def pin_message(self, chat_id: int, message_id: int) -> AdminActionResult:
         caps = await self._capabilities(chat_id)
@@ -151,9 +195,9 @@ class TelegramAdminService:
         try:
             await self.bot.pin_chat_message(chat_id=chat_id, message_id=message_id, disable_notification=True)
             self.repo.save_admin_action(chat_id, "pin_message", "applied", target={"message_id": message_id}, message_id=message_id)
-            return AdminActionResult(True, ["can_pin_messages"], True, True, "applied")
+            return self._applied()
         except TelegramError as exc:
-            return AdminActionResult(True, ["can_pin_messages"], True, False, str(exc), getattr(exc, "error_code", None))
+            return self._telegram_error(exc)
 
     async def unpin_message(self, chat_id: int) -> AdminActionResult:
         caps = await self._capabilities(chat_id)
@@ -162,9 +206,9 @@ class TelegramAdminService:
         try:
             await self.bot.unpin_chat_message(chat_id=chat_id)
             self.repo.save_admin_action(chat_id, "unpin_message", "applied", target={})
-            return AdminActionResult(True, ["can_pin_messages"], True, True, "applied")
+            return self._applied()
         except TelegramError as exc:
-            return AdminActionResult(True, ["can_pin_messages"], True, False, str(exc), getattr(exc, "error_code", None))
+            return self._telegram_error(exc)
 
     async def mute_member(self, chat_id: int, user_id: int, duration_seconds: int) -> AdminActionResult:
         caps = await self._capabilities(chat_id)
@@ -186,9 +230,9 @@ class TelegramAdminService:
                 user_id=user_id,
                 duration_seconds=duration_seconds,
             )
-            return AdminActionResult(True, ["can_restrict_members"], True, True, "applied")
+            return self._applied()
         except TelegramError as exc:
-            return AdminActionResult(True, ["can_restrict_members"], True, False, str(exc), getattr(exc, "error_code", None))
+            return self._telegram_error(exc)
 
     async def unmute_member(self, chat_id: int, user_id: int) -> AdminActionResult:
         caps = await self._capabilities(chat_id)
@@ -202,9 +246,9 @@ class TelegramAdminService:
                 use_independent_chat_permissions=True,
             )
             self.repo.save_admin_action(chat_id, "unmute_member", "applied", target={"user_id": user_id}, user_id=user_id)
-            return AdminActionResult(True, ["can_restrict_members"], True, True, "applied")
+            return self._applied()
         except TelegramError as exc:
-            return AdminActionResult(True, ["can_restrict_members"], True, False, str(exc), getattr(exc, "error_code", None))
+            return self._telegram_error(exc)
 
     async def ban_member(self, chat_id: int, user_id: int) -> AdminActionResult:
         caps = await self._capabilities(chat_id)
@@ -213,9 +257,9 @@ class TelegramAdminService:
         try:
             await self.bot.ban_chat_member(chat_id=chat_id, user_id=user_id)
             self.repo.save_admin_action(chat_id, "ban_member", "applied", target={"user_id": user_id}, user_id=user_id)
-            return AdminActionResult(True, ["can_restrict_members"], True, True, "applied")
+            return self._applied()
         except TelegramError as exc:
-            return AdminActionResult(True, ["can_restrict_members"], True, False, str(exc), getattr(exc, "error_code", None))
+            return self._telegram_error(exc)
 
     async def unban_member(self, chat_id: int, user_id: int) -> AdminActionResult:
         caps = await self._capabilities(chat_id)
@@ -224,9 +268,9 @@ class TelegramAdminService:
         try:
             await self.bot.unban_chat_member(chat_id=chat_id, user_id=user_id, only_if_banned=False)
             self.repo.save_admin_action(chat_id, "unban_member", "applied", target={"user_id": user_id}, user_id=user_id)
-            return AdminActionResult(True, ["can_restrict_members"], True, True, "applied")
+            return self._applied()
         except TelegramError as exc:
-            return AdminActionResult(True, ["can_restrict_members"], True, False, str(exc), getattr(exc, "error_code", None))
+            return self._telegram_error(exc)
 
     async def create_invite_link(self, chat_id: int, name: str | None = None) -> AdminActionResult:
         caps = await self._capabilities(chat_id)
@@ -235,16 +279,9 @@ class TelegramAdminService:
         try:
             link = await self.bot.create_chat_invite_link(chat_id=chat_id, name=name or None)
             self.repo.save_admin_action(chat_id, "create_invite_link", "applied", target={"name": name, "invite_link": link.invite_link})
-            return AdminActionResult(
-                True,
-                ["can_invite_users"],
-                True,
-                True,
-                "applied",
-                data={"invite_link": link.invite_link, "name": link.name},
-            )
+            return self._applied(data={"invite_link": link.invite_link, "name": link.name})
         except TelegramError as exc:
-            return AdminActionResult(True, ["can_invite_users"], True, False, str(exc), getattr(exc, "error_code", None))
+            return self._telegram_error(exc)
 
     async def revoke_invite_link(self, chat_id: int, invite_link: str) -> AdminActionResult:
         caps = await self._capabilities(chat_id)
@@ -253,16 +290,9 @@ class TelegramAdminService:
         try:
             revoked = await self.bot.revoke_chat_invite_link(chat_id=chat_id, invite_link=invite_link)
             self.repo.save_admin_action(chat_id, "revoke_invite_link", "applied", target={"invite_link": invite_link})
-            return AdminActionResult(
-                True,
-                ["can_invite_users"],
-                True,
-                True,
-                "applied",
-                data={"invite_link": revoked.invite_link},
-            )
+            return self._applied(data={"invite_link": revoked.invite_link})
         except TelegramError as exc:
-            return AdminActionResult(True, ["can_invite_users"], True, False, str(exc), getattr(exc, "error_code", None))
+            return self._telegram_error(exc)
 
     async def promote_admin(self, chat_id: int, user_id: int, promote_payload: dict[str, bool]) -> AdminActionResult:
         caps = await self._capabilities(chat_id)
@@ -271,9 +301,9 @@ class TelegramAdminService:
         try:
             await self.bot.promote_chat_member(chat_id=chat_id, user_id=user_id, **promote_payload)
             self.repo.save_admin_action(chat_id, "promote_admin", "applied", target={"user_id": user_id, "permissions": promote_payload}, user_id=user_id)
-            return AdminActionResult(True, ["can_promote_members"], True, True, "applied")
+            return self._applied()
         except TelegramError as exc:
-            return AdminActionResult(True, ["can_promote_members"], True, False, str(exc), getattr(exc, "error_code", None))
+            return self._telegram_error(exc)
 
     async def demote_admin(self, chat_id: int, user_id: int) -> AdminActionResult:
         caps = await self._capabilities(chat_id)
@@ -297,9 +327,9 @@ class TelegramAdminService:
                 is_anonymous=False,
             )
             self.repo.save_admin_action(chat_id, "demote_admin", "applied", target={"user_id": user_id}, user_id=user_id)
-            return AdminActionResult(True, ["can_promote_members"], True, True, "applied")
+            return self._applied()
         except TelegramError as exc:
-            return AdminActionResult(True, ["can_promote_members"], True, False, str(exc), getattr(exc, "error_code", None))
+            return self._telegram_error(exc)
 
     async def set_admin_title(self, chat_id: int, user_id: int, title: str) -> AdminActionResult:
         caps = await self._capabilities(chat_id)
@@ -308,6 +338,6 @@ class TelegramAdminService:
         try:
             await self.bot.set_chat_administrator_custom_title(chat_id=chat_id, user_id=user_id, custom_title=title)
             self.repo.save_admin_action(chat_id, "set_admin_title", "applied", target={"user_id": user_id, "title": title}, user_id=user_id)
-            return AdminActionResult(True, ["can_promote_members"], True, True, "applied")
+            return self._applied()
         except TelegramError as exc:
-            return AdminActionResult(True, ["can_promote_members"], True, False, str(exc), getattr(exc, "error_code", None))
+            return self._telegram_error(exc)

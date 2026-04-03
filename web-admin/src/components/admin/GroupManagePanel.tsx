@@ -3,7 +3,7 @@ import { Button, Card, Col, Divider, Form, Input, Modal, Row, Space, Switch, Tab
 import { ProTable, type ProColumns } from "@ant-design/pro-components";
 import type { AdminActionResult, ChatMemberBrief } from "@/lib/api";
 import type { AdminActions, AdminDataBundle } from "@/components/admin/types";
-import { formatTime, translatePermission } from "@/lib/helpers";
+import { formatTime, translateChatMemberStatus, translatePermission } from "@/lib/helpers";
 import { UserLazySelect } from "@/components/admin/UserLazySelect";
 
 type Props = {
@@ -77,6 +77,29 @@ export function GroupManagePanel({
         dataIndex: "last_message_at",
         width: 180,
         render: (_, row) => formatTime(row.last_message_at),
+      },
+      {
+        title: "当前状态",
+        dataIndex: "current_status",
+        width: 180,
+        render: (_, row) => {
+          const status = String(row.current_status || "unknown").toLowerCase();
+          const color =
+            status === "restricted" ? "orange" :
+            status === "kicked" || status === "banned" ? "red" :
+            status === "member" ? "green" :
+            status === "administrator" || status === "creator" || status === "owner" ? "blue" :
+            status === "left" ? "default" :
+            "default";
+          return (
+            <Space direction="vertical" size={2}>
+              <Tag color={color}>{translateChatMemberStatus(row.current_status)}</Tag>
+              {row.current_status_until_date ? (
+                <Typography.Text type="secondary">至 {formatTime(row.current_status_until_date)}</Typography.Text>
+              ) : null}
+            </Space>
+          );
+        },
       },
       { title: "违规分", dataIndex: "strike_score", width: 90 },
       {

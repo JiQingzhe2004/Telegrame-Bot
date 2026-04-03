@@ -510,7 +510,8 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
 
     @app.get("/api/v1/chats/{chat_id}/admin/members", dependencies=[Depends(require_active), Depends(auth_admin)])
     async def admin_members(chat_id: int, limit: int = 200, q: str = "") -> ApiEnvelope:
-        rows = services.repo.list_chat_members(chat_id=chat_id, limit=limit, query=q)
+        svc = _admin_service()
+        rows = await svc.list_members(chat_id=chat_id, limit=limit, query=q)
         return ApiEnvelope(ok=True, data=rows)
 
     @app.get("/api/v1/chats/{chat_id}/admin/members/{user_id}", dependencies=[Depends(require_active), Depends(auth_admin)])

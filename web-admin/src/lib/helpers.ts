@@ -26,6 +26,8 @@ export function writeStorage(key: string, value: string): void {
 }
 
 const reasonMap: Record<string, string> = {
+  applied: "已执行",
+  ok: "查询成功",
   missing_permission: "机器人缺少必要管理员权限",
   unsupported_action: "当前动作不受支持",
   invalid_target: "目标参数无效",
@@ -59,9 +61,25 @@ export function translatePermission(permission: string): string {
   return permissionMap[permission] ?? permission;
 }
 
+export function translateChatMemberStatus(status?: string | null): string {
+  const key = (status ?? "").toLowerCase();
+  const map: Record<string, string> = {
+    creator: "群主",
+    owner: "群主",
+    administrator: "管理员",
+    member: "正常",
+    restricted: "禁言/受限",
+    kicked: "已封禁",
+    banned: "已封禁",
+    left: "已退群",
+    unknown: "未知",
+  };
+  return map[key] ?? status ?? "未知";
+}
+
 export function formatAdminActionResult(result: AdminActionResult): string {
   const translatedReason = translateReason(result.reason);
-  const missing = (result.permission_required ?? []).map(translatePermission);
+  const missing = result.permission_ok ? [] : (result.permission_required ?? []).map(translatePermission);
   if (missing.length > 0) {
     return `${translatedReason}；缺少权限：${missing.join("、")}`;
   }

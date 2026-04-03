@@ -1,4 +1,6 @@
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
 
@@ -67,6 +69,11 @@ class FakeRuntimeManager:
             join_welcome_use_ai=False,
             join_welcome_template="欢迎 {user} 加入 {chat}",
         )
+        self._tg_app = SimpleNamespace(
+            bot=SimpleNamespace(
+                get_chat_member=AsyncMock(return_value=SimpleNamespace(status="member", until_date=None))
+            )
+        )
 
     def is_active(self) -> bool:
         return self.active
@@ -90,6 +97,9 @@ class FakeRuntimeManager:
 
     def get_ai_moderator(self):
         return self.ai_moderator
+
+    def get_bot_application(self):
+        return self._tg_app
 
     def update_runtime_config(self, payload: dict):
         raise NotImplementedError
@@ -302,3 +312,24 @@ def test_verification_question_generate_endpoint(tmp_path):
     assert data["count"] == 2
     assert len(data["items"]) == 2
     assert data["items"][0]["answer_text"] == "看群规"
+
+
+def test_admin_members_endpoint_exposes_current_status(tmp_path):
+    app, repo, runtime_manager = make_app_bundle(tmp_path)
+    repo.upsert_chat_user(
+        ChatRef(chat_id=1, type="supergroup", title="测试群"),
+        UserRef(user_id=2, username="alice", is_bot=False, first_name="Alice"),
+    )
+    repo.save_admin_action(1, "ban_member", "applied", target={"user_id": 2}, user_id=2)
+    runtime_manager._tg_app.bot.get_chat_member = AsyncMock(
+        return_value=SimpleNamespace(status="restricted", until_date=None)
+    )
+    client = TestClient(app)
+
+    response = client.get("/api/v1/chats/1/admin/members", headers={"X-Admin-Token": "admin-token"})
+
+    assert response.status_code == 200
+    row = response.json()["data"][0]
+    assert row["user_id"] == 2
+    assert row["current_status"] == "restricted"
+    assert row["current_status_until_date"] is None

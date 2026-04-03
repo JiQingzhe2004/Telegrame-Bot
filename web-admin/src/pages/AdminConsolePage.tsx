@@ -282,7 +282,7 @@ export function AdminConsolePage({
       if (!result.applied || !result.permission_ok) {
         notification.warning({ message: "动作未完全执行", description: formatAdminActionResult(result) });
       } else {
-        message.success(result.reason ? formatAdminActionResult(result) : successText);
+        message.success(successText || formatAdminActionResult(result));
       }
       await refreshModerationData();
     } catch (error) {

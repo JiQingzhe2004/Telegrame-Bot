@@ -108,5 +108,26 @@ def test_ban_member_uses_can_restrict_members_permission():
 
     assert result.permission_ok is True
     assert result.applied is True
-    assert result.permission_required == ["can_restrict_members"]
+    assert result.permission_required == []
     bot.ban_chat_member.assert_awaited_once_with(chat_id=1, user_id=2)
+
+
+def test_list_members_includes_current_status_from_telegram():
+    svc, bot = make_service()
+    svc.repo.list_chat_members = lambda chat_id, limit=200, query=None: [
+        {
+            "user_id": 2,
+            "username": "alice",
+            "first_name": "Alice",
+            "last_name": None,
+            "last_message_at": None,
+            "strike_score": 1,
+        }
+    ]
+    bot.get_chat_member.return_value = SimpleNamespace(status="restricted", until_date=None)
+
+    rows = asyncio.run(svc.list_members(chat_id=1))
+
+    assert len(rows) == 1
+    assert rows[0]["current_status"] == "restricted"
+    assert rows[0]["current_status_until_date"] is None

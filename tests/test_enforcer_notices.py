@@ -31,13 +31,46 @@ def test_warn_notice_uses_real_username_and_chinese_reason():
     result = asyncio.run(enforcer.apply(bot, message, decision, PermissionSnapshot(True, True, True)))
 
     assert result.success is True
+    bot.delete_message.assert_awaited_once_with(chat_id=1, message_id=10)
     bot.send_message.assert_awaited_once()
     kwargs = bot.send_message.await_args.kwargs
     assert kwargs["chat_id"] == 1
     assert "@alice" in kwargs["text"]
     assert "@123456" not in kwargs["text"]
     assert "命中违禁词" in kwargs["text"]
+    assert "已被警告，发送的消息已被删除" in kwargs["text"]
     assert kwargs["parse_mode"] == "HTML"
+
+
+def test_warn_without_delete_permission_only_sends_notice():
+    bot = AsyncMock()
+    enforcer = Enforcer(SimpleNamespace())
+    message = MessageRef(
+        chat_id=1,
+        message_id=12,
+        user_id=123457,
+        date=utc_now(),
+        text="bad",
+        meta={"username": "bob", "display_name": "Bob"},
+    )
+    decision = ModerationDecision(
+        final_level=1,
+        final_action="warn",
+        reason_codes=["rule.banword"],
+        rule_results=[],
+        ai_used=False,
+        ai_decision=None,
+        confidence=0.9,
+    )
+
+    result = asyncio.run(enforcer.apply(bot, message, decision, PermissionSnapshot(False, True, True)))
+
+    assert result.success is True
+    bot.delete_message.assert_not_awaited()
+    bot.send_message.assert_awaited_once()
+    kwargs = bot.send_message.await_args.kwargs
+    assert "已被警告" in kwargs["text"]
+    assert "消息已被删除" not in kwargs["text"]
 
 
 def test_ban_notice_uses_clickable_mention_when_no_username():
