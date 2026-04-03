@@ -136,6 +136,26 @@ body,
   background: oklch(0.975 0.008 254.06);
 }
 
+.member-table .ant-table-cell {
+  vertical-align: top;
+}
+
+.member-table .ant-space {
+  max-width: 100%;
+}
+
+.member-table .ant-typography {
+  margin-bottom: 0;
+}
+
+.member-table .ant-table-tbody > tr > td:last-child {
+  white-space: normal;
+}
+
+.member-table .ant-btn {
+  flex: 0 0 auto;
+}
+
 .admin-content .ant-btn-primary {
   background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
   border-color: transparent;

@@ -69,19 +69,36 @@ export function GroupManagePanel({
       {
         title: "用户",
         dataIndex: "username",
-        render: (_, row) => row.username || `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim() || "-",
+        render: (_, row) => {
+          const displayName = `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim() || row.username || "-";
+          return (
+            <Space direction="vertical" size={1}>
+              <Typography.Text strong ellipsis={{ tooltip: displayName }}>
+                {displayName}
+              </Typography.Text>
+              <Typography.Text type="secondary" ellipsis={{ tooltip: row.username || undefined }}>
+                {row.username ? `@${row.username}` : "无用户名"}
+              </Typography.Text>
+            </Space>
+          );
+        },
       },
-      { title: "User ID", dataIndex: "user_id", width: 170 },
+      {
+        title: "User ID",
+        dataIndex: "user_id",
+        width: 120,
+        render: (_, row) => <Typography.Text code>{row.user_id}</Typography.Text>,
+      },
       {
         title: "最后活跃",
         dataIndex: "last_message_at",
-        width: 180,
-        render: (_, row) => formatTime(row.last_message_at),
+        render: (_, row) => (
+          <Typography.Text type="secondary">{formatTime(row.last_message_at)}</Typography.Text>
+        ),
       },
       {
         title: "当前状态",
         dataIndex: "current_status",
-        width: 180,
         render: (_, row) => {
           const status = String(row.current_status || "unknown").toLowerCase();
           const color =
@@ -95,19 +112,26 @@ export function GroupManagePanel({
             <Space direction="vertical" size={2}>
               <Tag color={color}>{translateChatMemberStatus(row.current_status)}</Tag>
               {row.current_status_until_date ? (
-                <Typography.Text type="secondary">至 {formatTime(row.current_status_until_date)}</Typography.Text>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  至 {formatTime(row.current_status_until_date)}
+                </Typography.Text>
               ) : null}
             </Space>
           );
         },
       },
-      { title: "违规分", dataIndex: "strike_score", width: 90 },
+      {
+        title: "违规分",
+        dataIndex: "strike_score",
+        width: 84,
+        align: "center",
+        render: (_, row) => <Tag color={row.strike_score > 0 ? "gold" : "default"}>{row.strike_score}</Tag>,
+      },
       {
         title: "快捷操作",
         key: "actions",
-        width: 280,
         render: (_, row) => (
-          <Space>
+          <Space wrap size={[8, 8]}>
             <Button size="small" onClick={() => setTargetUserId(String(row.user_id))}>
               选为目标
             </Button>
@@ -197,6 +221,7 @@ export function GroupManagePanel({
       >
         <Typography.Paragraph type="secondary">仅展示机器人实际收到过消息、或已被处置过的用户；这不是 Telegram 全量成员列表。</Typography.Paragraph>
         <ProTable<ChatMemberBrief>
+          className="member-table"
           rowKey="user_id"
           columns={columns}
           dataSource={data.members}
