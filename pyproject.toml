@@ -1,6 +1,6 @@
 [project]
 name = "telegram-moderator-bot"
-version = "0.1.10"
+version = "0.1.12"
 description = "Telegram group moderation bot service with rules + AI + SQLite audit."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -9,7 +9,7 @@ dependencies = [
   "openai>=2.0.0",
   "pydantic>=2.11.0",
   "python-dotenv>=1.0.1",
-  "python-telegram-bot>=22.0",
+  "python-telegram-bot>=22.7,<23",
   "uvicorn>=0.35.0",
 ]
 

@@ -167,41 +167,11 @@ async def _build_welcome_text(
 
 
 def _restricted_permissions() -> ChatPermissions:
-    return ChatPermissions(
-        can_send_messages=False,
-        can_send_audios=False,
-        can_send_documents=False,
-        can_send_photos=False,
-        can_send_videos=False,
-        can_send_video_notes=False,
-        can_send_voice_notes=False,
-        can_send_polls=False,
-        can_send_other_messages=False,
-        can_add_web_page_previews=False,
-        can_change_info=False,
-        can_invite_users=False,
-        can_pin_messages=False,
-        can_manage_topics=False,
-    )
+    return ChatPermissions.no_permissions()
 
 
 def _verification_release_permissions() -> ChatPermissions:
-    return ChatPermissions(
-        can_send_messages=True,
-        can_send_audios=True,
-        can_send_documents=True,
-        can_send_photos=True,
-        can_send_videos=True,
-        can_send_video_notes=True,
-        can_send_voice_notes=True,
-        can_send_polls=True,
-        can_send_other_messages=True,
-        can_add_web_page_previews=True,
-        can_change_info=False,
-        can_invite_users=False,
-        can_pin_messages=False,
-        can_manage_topics=False,
-    )
+    return ChatPermissions.all_permissions()
 
 
 async def _verification_timeout(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -302,6 +272,7 @@ async def on_join_verify_callback(update: Update, context: ContextTypes.DEFAULT_
                 chat_id=chat_id,
                 user_id=user_id,
                 permissions=_verification_release_permissions(),
+                use_independent_chat_permissions=True,
             )
         except TelegramError as exc:
             logger.warning(
@@ -486,6 +457,7 @@ async def on_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE
                 chat_id=chat.id,
                 user_id=joined.id,
                 permissions=_restricted_permissions(),
+                use_independent_chat_permissions=True,
             )
         except TelegramError as exc:
             restrict_ok = False

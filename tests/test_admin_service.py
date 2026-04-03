@@ -2,6 +2,7 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+from telegram import ChatPermissions
 from telegram.error import TelegramError
 
 from bot.telegram.admin_service import TelegramAdminService
@@ -66,3 +67,46 @@ def test_owner_bot_has_full_capabilities_for_admin_actions():
     assert result.permission_ok is True
     assert result.applied is True
     bot.delete_message.assert_awaited_once_with(chat_id=1, message_id=2)
+
+
+def test_mute_member_uses_no_permissions_and_independent_permissions():
+    svc, bot = make_service()
+
+    result = asyncio.run(svc.mute_member(chat_id=1, user_id=2, duration_seconds=600))
+
+    assert result.permission_ok is True
+    assert result.applied is True
+    bot.restrict_chat_member.assert_awaited_once()
+    kwargs = bot.restrict_chat_member.await_args.kwargs
+    assert kwargs["chat_id"] == 1
+    assert kwargs["user_id"] == 2
+    assert kwargs["permissions"] == ChatPermissions.no_permissions()
+    assert kwargs["use_independent_chat_permissions"] is True
+    assert kwargs["until_date"] is not None
+
+
+def test_unmute_member_uses_all_permissions_without_until_date():
+    svc, bot = make_service()
+
+    result = asyncio.run(svc.unmute_member(chat_id=1, user_id=2))
+
+    assert result.permission_ok is True
+    assert result.applied is True
+    bot.restrict_chat_member.assert_awaited_once()
+    kwargs = bot.restrict_chat_member.await_args.kwargs
+    assert kwargs["chat_id"] == 1
+    assert kwargs["user_id"] == 2
+    assert kwargs["permissions"] == ChatPermissions.all_permissions()
+    assert kwargs["use_independent_chat_permissions"] is True
+    assert "until_date" not in kwargs
+
+
+def test_ban_member_uses_can_restrict_members_permission():
+    svc, bot = make_service()
+
+    result = asyncio.run(svc.ban_member(chat_id=1, user_id=2))
+
+    assert result.permission_ok is True
+    assert result.applied is True
+    assert result.permission_required == ["can_restrict_members"]
+    bot.ban_chat_member.assert_awaited_once_with(chat_id=1, user_id=2)

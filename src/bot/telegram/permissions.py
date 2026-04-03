@@ -29,9 +29,9 @@ def extract_chat_capabilities(member: Any) -> dict[str, bool]:
         for field in CAPABILITY_FIELDS
     }
     caps["is_anonymous"] = bool(getattr(member, "is_anonymous", False))
-    # Telegram “封禁用户”与“限制成员（禁言/解禁）”在不同端/版本上可能映射到不同字段。
-    # 为了尽量兼容：如果具备限制成员权限，则默认视为具备封禁用户权限。
-    caps["can_ban_users"] = bool(caps.get("can_ban_users", False) or caps.get("can_restrict_members", False))
+    # Telegram 当前权限模型里，can_restrict_members 同时覆盖 restrict/ban/unban。
+    # 某些客户端或旧字段仍会显示“封禁用户”，这里保留兼容别名给前端/UI 展示。
+    caps["can_ban_users"] = bool(caps.get("can_restrict_members", False) or caps.get("can_ban_users", False))
     return caps
 
 
