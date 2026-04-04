@@ -29,6 +29,7 @@ from telegram.ext import (
 
 from bot.ai.openai_client import OpenAiModerator
 from bot.points_service import PointsService
+from bot.lottery_service import LotteryService
 from bot.ai.redact import redact_pii
 from bot.domain.models import ChatRef, MessageRef, ModerationContext, UserRef
 from bot.domain.moderation import Enforcer, ModerationService
@@ -64,6 +65,7 @@ from bot.telegram.permissions import get_permission_snapshot, is_admin
 from bot.utils.time import utc_now
 from bot.utils.rate_limit import RaidDetector
 from bot.telegram.inspector import register_inspection_job
+from bot.telegram.lottery import LOTTERY_CALLBACK_PREFIX, on_lottery_callback, register_lottery_job
 
 logger = logging.getLogger(__name__)
 VERIFY_CALLBACK_PREFIX = "join_verify:"
@@ -825,6 +827,7 @@ def build_application(
     app.bot_data["runtime_config"] = runtime_config or RuntimeConfig()
     app.bot_data["pending_join_verifications"] = {}
     app.bot_data["points_service"] = points_service
+    app.bot_data["lottery_service"] = LotteryService(repo)
 
     app.add_handler(CommandHandler("status", status_cmd))
     app.add_handler(CommandHandler("start", start_cmd))
@@ -844,6 +847,7 @@ def build_application(
     app.add_handler(CommandHandler("redeem", redeem_cmd))
     app.add_handler(CommandHandler("points_add", points_add_cmd))
     app.add_handler(CommandHandler("points_sub", points_sub_cmd))
+    app.add_handler(CallbackQueryHandler(on_lottery_callback, pattern=f"^{LOTTERY_CALLBACK_PREFIX}"))
     app.add_handler(CallbackQueryHandler(on_user_flow_callback, pattern=f"^{USER_FLOW_CALLBACK_PREFIX}"))
     app.add_handler(CallbackQueryHandler(on_points_self_callback, pattern=f"^{POINTS_SELF_CALLBACK_PREFIX}"))
     app.add_handler(CallbackQueryHandler(on_join_verify_callback, pattern=f"^{VERIFY_CALLBACK_PREFIX}"))
@@ -851,5 +855,6 @@ def build_application(
     app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT & (~filters.COMMAND), on_private_text))
     app.add_handler(MessageHandler(filters.ALL & (~filters.COMMAND), on_group_message))
     register_inspection_job(app)
+    register_lottery_job(app)
     app.post_init = _register_bot_commands
     return app

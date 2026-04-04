@@ -380,6 +380,75 @@ MIGRATIONS: list[Migration] = [
         CREATE INDEX IF NOT EXISTS idx_points_redemptions_chat_user_created ON chat_points_redemptions(chat_id, user_id, created_at DESC);
         """,
     ),
+    Migration(
+        version="0011_chat_lotteries",
+        sql="""
+        CREATE TABLE IF NOT EXISTS chat_lotteries(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          chat_id INTEGER NOT NULL,
+          title TEXT NOT NULL,
+          description TEXT,
+          status TEXT NOT NULL DEFAULT 'active',
+          entry_mode TEXT NOT NULL DEFAULT 'free',
+          points_cost INTEGER NOT NULL DEFAULT 0,
+          points_threshold INTEGER NOT NULL DEFAULT 0,
+          allow_multiple_entries INTEGER NOT NULL DEFAULT 0,
+          max_entries_per_user INTEGER NOT NULL DEFAULT 1,
+          show_participants INTEGER NOT NULL DEFAULT 1,
+          starts_at TEXT NOT NULL,
+          entry_deadline_at TEXT NOT NULL,
+          draw_at TEXT NOT NULL,
+          announcement_message_id INTEGER,
+          created_by INTEGER,
+          summary_json TEXT,
+          canceled_at TEXT,
+          drawn_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_lotteries_chat_status_draw ON chat_lotteries(chat_id, status, draw_at);
+
+        CREATE TABLE IF NOT EXISTS chat_lottery_prizes(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          lottery_id INTEGER NOT NULL,
+          title TEXT NOT NULL,
+          winner_count INTEGER NOT NULL DEFAULT 1,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_lottery_prizes_lottery ON chat_lottery_prizes(lottery_id, sort_order, id);
+
+        CREATE TABLE IF NOT EXISTS chat_lottery_entries(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          lottery_id INTEGER NOT NULL,
+          chat_id INTEGER NOT NULL,
+          user_id INTEGER NOT NULL,
+          entry_count INTEGER NOT NULL DEFAULT 1,
+          points_spent INTEGER NOT NULL DEFAULT 0,
+          source TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'joined',
+          ledger_id INTEGER,
+          refund_ledger_id INTEGER,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_lottery_entries_lottery_user ON chat_lottery_entries(lottery_id, user_id, status, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS chat_lottery_winners(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          lottery_id INTEGER NOT NULL,
+          prize_id INTEGER NOT NULL,
+          chat_id INTEGER NOT NULL,
+          user_id INTEGER NOT NULL,
+          prize_title TEXT NOT NULL,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          entry_count INTEGER NOT NULL DEFAULT 1,
+          snapshot_json TEXT,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_lottery_winners_lottery ON chat_lottery_winners(lottery_id, sort_order, id);
+        """,
+    ),
 ]
 
 

@@ -12,11 +12,13 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from bot.domain.models import ChatRef, MessageRef, ModerationContext, UserRef
+from bot.lottery_service import ENTRY_MODE_CONSUME, ENTRY_MODE_FREE, ENTRY_MODE_THRESHOLD, LotteryService
 from bot.points_service import PointsService
 from bot.runtime_manager import RuntimeManager
 from bot.storage.repo import BotRepository
 from bot.system_config import ConfigService
 from bot.telegram.admin_service import TelegramAdminService
+from bot.telegram.lottery import build_winners_summary, send_lottery_announcement
 from bot.utils.time import utc_now
 from bot.version import get_backend_version
 
@@ -47,6 +49,7 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
     backend_version = get_backend_version()
     app = FastAPI(title="telegram-moderator-bot-api", version=backend_version)
     points_service = PointsService(services.repo)
+    lottery_service = LotteryService(services.repo)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(services.cors_origins),
@@ -143,6 +146,61 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
             "scope": scope,
             "count": count,
             "topic_hint": topic_hint,
+        }
+
+    def _parse_lottery_payload(chat_id: int, body: dict[str, Any]) -> dict[str, Any]:
+        title = str(body.get("title", "")).strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="missing_lottery_title")
+        entry_mode = str(body.get("entry_mode", ENTRY_MODE_FREE)).strip() or ENTRY_MODE_FREE
+        if entry_mode not in {ENTRY_MODE_FREE, ENTRY_MODE_CONSUME, ENTRY_MODE_THRESHOLD}:
+            raise HTTPException(status_code=400, detail="invalid_lottery_entry_mode")
+        prizes = body.get("prizes")
+        if not isinstance(prizes, list) or not prizes:
+            raise HTTPException(status_code=400, detail="invalid_lottery_prizes")
+        parsed_prizes = []
+        for idx, prize in enumerate(prizes):
+            if not isinstance(prize, dict):
+                raise HTTPException(status_code=400, detail="invalid_lottery_prizes")
+            prize_title = str(prize.get("title", "")).strip()
+            if not prize_title:
+                raise HTTPException(status_code=400, detail="invalid_lottery_prize_title")
+            parsed_prizes.append(
+                {
+                    "title": prize_title,
+                    "winner_count": max(int(prize.get("winner_count", 1)), 0),
+                    "sort_order": int(prize.get("sort_order", idx)),
+                }
+            )
+        starts_at = str(body.get("starts_at", "")).strip()
+        entry_deadline_at = str(body.get("entry_deadline_at", "")).strip()
+        draw_at = str(body.get("draw_at", "")).strip() or entry_deadline_at
+        if not starts_at or not entry_deadline_at or not draw_at:
+            raise HTTPException(status_code=400, detail="missing_lottery_schedule")
+        try:
+            starts_dt = services.repo.parse_iso_datetime(starts_at)
+            deadline_dt = services.repo.parse_iso_datetime(entry_deadline_at)
+            draw_dt = services.repo.parse_iso_datetime(draw_at)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="invalid_lottery_schedule") from exc
+        if deadline_dt < starts_dt or draw_dt < deadline_dt:
+            raise HTTPException(status_code=400, detail="invalid_lottery_schedule_order")
+        max_entries_per_user = max(int(body.get("max_entries_per_user", 1)), 1)
+        return {
+            "chat_id": chat_id,
+            "title": title,
+            "description": str(body.get("description", "")).strip(),
+            "entry_mode": entry_mode,
+            "points_cost": max(int(body.get("points_cost", 0)), 0),
+            "points_threshold": max(int(body.get("points_threshold", 0)), 0),
+            "allow_multiple_entries": bool(body.get("allow_multiple_entries", False)),
+            "max_entries_per_user": max_entries_per_user,
+            "show_participants": bool(body.get("show_participants", True)),
+            "starts_at": starts_at,
+            "entry_deadline_at": entry_deadline_at,
+            "draw_at": draw_at,
+            "created_by": int(body.get("created_by", 0) or 0) or None,
+            "prizes": parsed_prizes,
         }
 
     def _points_settings_payload(body: dict[str, Any]) -> dict[str, Any]:
@@ -483,6 +541,77 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
         if row is None:
             raise HTTPException(status_code=404, detail="redemption_not_found")
         return ApiEnvelope(ok=True, data=row)
+
+    @app.get("/api/v1/chats/{chat_id}/lotteries", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def list_lotteries(chat_id: int) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        return ApiEnvelope(ok=True, data=lottery_service.list_lotteries(chat_id))
+
+    @app.post("/api/v1/chats/{chat_id}/lotteries", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def create_lottery(chat_id: int, body: dict[str, Any]) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        payload = _parse_lottery_payload(chat_id, body)
+        created = lottery_service.create_lottery(chat_id, payload)
+        tg_app = services.runtime_manager.get_bot_application()
+        if tg_app is not None:
+            message_id = await send_lottery_announcement(
+                bot=tg_app.bot,
+                chat_id=chat_id,
+                lottery=created,
+                prizes=created["prizes"],
+                stats=created["stats"],
+            )
+            if message_id:
+                services.repo.set_lottery_announcement_message(int(created["id"]), message_id)
+                created = lottery_service.get_lottery_detail(int(created["id"]))
+        return ApiEnvelope(ok=True, data=created)
+
+    @app.get("/api/v1/chats/{chat_id}/lotteries/{lottery_id}", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def get_lottery(chat_id: int, lottery_id: int) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        detail = lottery_service.get_lottery_detail(lottery_id)
+        if int(detail["chat_id"]) != chat_id:
+            raise HTTPException(status_code=404, detail="lottery_not_found")
+        return ApiEnvelope(ok=True, data=detail)
+
+    @app.put("/api/v1/chats/{chat_id}/lotteries/{lottery_id}", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def update_lottery(chat_id: int, lottery_id: int, body: dict[str, Any]) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        payload = _parse_lottery_payload(chat_id, body)
+        updated = lottery_service.update_lottery(lottery_id, payload)
+        if int(updated["chat_id"]) != chat_id:
+            raise HTTPException(status_code=404, detail="lottery_not_found")
+        return ApiEnvelope(ok=True, data=updated)
+
+    @app.get("/api/v1/chats/{chat_id}/lotteries/{lottery_id}/entries", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def get_lottery_entries(chat_id: int, lottery_id: int) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        detail = lottery_service.get_lottery_detail(lottery_id)
+        if int(detail["chat_id"]) != chat_id:
+            raise HTTPException(status_code=404, detail="lottery_not_found")
+        return ApiEnvelope(ok=True, data=services.repo.list_lottery_entries(lottery_id))
+
+    @app.post("/api/v1/chats/{chat_id}/lotteries/{lottery_id}/cancel", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def cancel_lottery(chat_id: int, lottery_id: int, body: dict[str, Any] | None = None) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        canceled = lottery_service.cancel_lottery(lottery_id, operator="admin_api")
+        if int(canceled["chat_id"]) != chat_id:
+            raise HTTPException(status_code=404, detail="lottery_not_found")
+        tg_app = services.runtime_manager.get_bot_application()
+        if tg_app is not None:
+            await tg_app.bot.send_message(chat_id=chat_id, text=f"抽奖活动「{canceled['title']}」已取消。")
+        return ApiEnvelope(ok=True, data=canceled)
+
+    @app.post("/api/v1/chats/{chat_id}/lotteries/{lottery_id}/draw", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def draw_lottery(chat_id: int, lottery_id: int, body: dict[str, Any] | None = None) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        detail = lottery_service.draw_lottery(lottery_id, operator="admin_api")
+        if int(detail["chat_id"]) != chat_id:
+            raise HTTPException(status_code=404, detail="lottery_not_found")
+        tg_app = services.runtime_manager.get_bot_application()
+        if tg_app is not None:
+            await tg_app.bot.send_message(chat_id=chat_id, text=build_winners_summary(detail, detail["winners"]))
+        return ApiEnvelope(ok=True, data=detail)
 
     @app.get("/api/v1/chats/{chat_id}/verification/questions", dependencies=[Depends(require_active), Depends(auth_admin)])
     async def list_verification_questions(chat_id: int, include_global: bool = True) -> ApiEnvelope:

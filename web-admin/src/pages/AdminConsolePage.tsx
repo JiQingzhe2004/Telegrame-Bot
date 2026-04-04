@@ -6,6 +6,7 @@ import {
   Users,
   Bot,
   Coins,
+  Gift,
   ShieldCheck,
   ListOrdered,
   FileSearch,
@@ -34,6 +35,7 @@ import { GroupInfoPanel } from "@/components/admin/GroupInfoPanel";
 import { AiConfigPanel } from "@/components/admin/AiConfigPanel";
 import { PolicyConfigPanel } from "@/components/admin/PolicyConfigPanel";
 import { PointsPanel } from "@/components/admin/PointsPanel";
+import { LotteryPanel } from "@/components/admin/LotteryPanel";
 import { ListManagePanel } from "@/components/admin/ListManagePanel";
 import { AuditCenterPanel } from "@/components/admin/AuditCenterPanel";
 import { EnforcementPanel } from "@/components/admin/EnforcementPanel";
@@ -54,6 +56,7 @@ const menuItems: readonly SidebarItem[] = [
   { key: "ai", icon: Bot, label: "AI 配置" },
   { key: "policy", icon: ShieldCheck, label: "策略配置" },
   { key: "points", icon: Coins, label: "积分管理" },
+  { key: "lottery", icon: Gift, label: "抽奖活动" },
   { key: "lists", icon: ListOrdered, label: "名单管理" },
   { key: "audit", icon: FileSearch, label: "审计中心" },
   { key: "enforcement", icon: Zap, label: "处置记录" },
@@ -254,6 +257,23 @@ export function AdminConsolePage({
     enabled: authed && chatReady && Boolean(queriedPointsUserId),
     refetchOnWindowFocus: false,
   });
+  const lotteriesQuery = useQuery({
+    queryKey: queryKeys.lotteries(baseUrl, chatId, adminToken),
+    queryFn: () => api.listLotteries(chatId, adminToken),
+    enabled: authed && chatReady,
+    placeholderData: keepCurrentChatData,
+    refetchInterval: menuKey === "lottery" ? 15000 : false,
+    refetchOnWindowFocus: false,
+  });
+  const [selectedLotteryId, setSelectedLotteryId] = useState<number | null>(null);
+  const lotteryEntriesQuery = useQuery({
+    queryKey: queryKeys.lotteryEntries(baseUrl, chatId, selectedLotteryId, adminToken),
+    queryFn: () => api.getLotteryEntries(chatId, adminToken, selectedLotteryId ?? 0),
+    enabled: authed && chatReady && selectedLotteryId !== null,
+    placeholderData: keepCurrentChatData,
+    refetchInterval: menuKey === "lottery" && selectedLotteryId !== null ? 15000 : false,
+    refetchOnWindowFocus: false,
+  });
   const auditsQuery = useQuery({
     queryKey: queryKeys.audits(baseUrl, chatId, adminToken),
     queryFn: () => api.listAudits(chatId, adminToken, 100),
@@ -293,7 +313,9 @@ export function AdminConsolePage({
     pointsShopQuery.isLoading ||
     pointsRedemptionsQuery.isLoading ||
     pointsLeaderboardQuery.isLoading ||
-    pointsLedgerQuery.isLoading;
+    pointsLedgerQuery.isLoading ||
+    lotteriesQuery.isLoading ||
+    lotteryEntriesQuery.isLoading;
 
   useEffect(() => {
     if (
@@ -314,6 +336,8 @@ export function AdminConsolePage({
       pointsRedemptionsQuery.data ||
       pointsLeaderboardQuery.data ||
       pointsLedgerQuery.data ||
+      lotteriesQuery.data ||
+      lotteryEntriesQuery.data ||
       pointsBalanceQuery.data ||
       auditsQuery.data ||
       enforcementsQuery.data ||
@@ -339,6 +363,8 @@ export function AdminConsolePage({
     pointsRedemptionsQuery.data,
     pointsLeaderboardQuery.data,
     pointsLedgerQuery.data,
+    lotteriesQuery.data,
+    lotteryEntriesQuery.data,
     pointsBalanceQuery.data,
     auditsQuery.data,
     enforcementsQuery.data,
@@ -363,6 +389,8 @@ export function AdminConsolePage({
     pointsRedemptionsQuery.isFetching ||
     pointsLeaderboardQuery.isFetching ||
     pointsLedgerQuery.isFetching ||
+    lotteriesQuery.isFetching ||
+    lotteryEntriesQuery.isFetching ||
     pointsBalanceQuery.isFetching ||
     auditsQuery.isFetching ||
     enforcementsQuery.isFetching ||
@@ -387,6 +415,7 @@ export function AdminConsolePage({
         pointsLeaderboardQuery.refetch(),
         pointsLedgerQuery.refetch(),
       );
+      if (menuKey === "lottery") tasks.push(lotteriesQuery.refetch(), lotteryEntriesQuery.refetch());
       if (menuKey === "audit") tasks.push(auditsQuery.refetch());
       if (menuKey === "enforcement") tasks.push(enforcementsQuery.refetch());
       if (menuKey === "appeals") tasks.push(appealsQuery.refetch());
@@ -642,6 +671,8 @@ export function AdminConsolePage({
     pointsRedemptions: pointsRedemptionsQuery.data ?? [],
     pointsLeaderboard: pointsLeaderboardQuery.data ?? [],
     pointsLedger: pointsLedgerQuery.data ?? [],
+    lotteries: lotteriesQuery.data ?? [],
+    lotteryEntries: lotteryEntriesQuery.data ?? [],
     audits: (auditsQuery.data ?? []).filter((item) => !globalSearch || item.rule_hit.includes(globalSearch)),
     enforcements: (enforcementsQuery.data ?? []).filter((item) => !globalSearch || item.reason.includes(globalSearch)),
     appeals: (appealsQuery.data ?? []).filter((item) => !globalSearch || item.message.includes(globalSearch)),
@@ -810,6 +841,43 @@ export function AdminConsolePage({
             await api.updatePointsRedemptionStatus(chatId, adminToken, redemptionId, status);
             toast.success("兑换状态已更新");
             await pointsRedemptionsQuery.refetch();
+          }}
+        />
+      );
+    }
+    if (menuKey === "lottery") {
+      return (
+        <LotteryPanel
+          data={bundle}
+          onRefresh={async () => {
+            await Promise.all([lotteriesQuery.refetch(), lotteryEntriesQuery.refetch()]);
+          }}
+          onCreateLottery={async (payload) => {
+            await api.createLottery(chatId, adminToken, payload);
+            toast.success("抽奖活动已创建并推送到群里");
+            const refreshed = await lotteriesQuery.refetch();
+            const newest = refreshed.data?.[0];
+            if (newest) {
+              setSelectedLotteryId(newest.id);
+            }
+          }}
+          onUpdateLottery={async (lotteryId, payload) => {
+            await api.updateLottery(chatId, adminToken, lotteryId, payload);
+            toast.success("抽奖活动已更新");
+            await lotteriesQuery.refetch();
+          }}
+          onCancelLottery={async (lotteryId) => {
+            await api.cancelLottery(chatId, adminToken, lotteryId);
+            toast.success("抽奖活动已取消");
+            await Promise.all([lotteriesQuery.refetch(), lotteryEntriesQuery.refetch()]);
+          }}
+          onDrawLottery={async (lotteryId) => {
+            await api.drawLottery(chatId, adminToken, lotteryId);
+            toast.success("已执行开奖");
+            await Promise.all([lotteriesQuery.refetch(), lotteryEntriesQuery.refetch()]);
+          }}
+          onLoadEntries={async (lotteryId) => {
+            setSelectedLotteryId(lotteryId);
           }}
         />
       );

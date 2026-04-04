@@ -294,6 +294,100 @@ export type PointsRedemption = {
   created_at: string;
 };
 
+export type LotteryPrize = {
+  id?: number;
+  lottery_id?: number;
+  title: string;
+  winner_count: number;
+  sort_order: number;
+  created_at?: string;
+};
+
+export type LotteryEntry = {
+  id: number;
+  lottery_id: number;
+  chat_id: number;
+  user_id: number;
+  entry_count: number;
+  points_spent: number;
+  source: string;
+  status: string;
+  ledger_id: number | null;
+  refund_ledger_id: number | null;
+  username: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type LotteryWinner = {
+  id: number;
+  lottery_id: number;
+  prize_id: number;
+  chat_id: number;
+  user_id: number;
+  prize_title: string;
+  sort_order: number;
+  entry_count: number;
+  snapshot_json: string | null;
+  username: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  created_at: string;
+};
+
+export type LotteryStats = {
+  join_records: number;
+  unique_users: number;
+  total_entry_count: number;
+  total_points_spent: number;
+  winner_count: number;
+};
+
+export type LotteryDetail = {
+  id: number;
+  chat_id: number;
+  title: string;
+  description: string | null;
+  status: string;
+  entry_mode: "free" | "consume_points" | "balance_threshold";
+  points_cost: number;
+  points_threshold: number;
+  allow_multiple_entries: boolean;
+  max_entries_per_user: number;
+  show_participants: boolean;
+  starts_at: string;
+  entry_deadline_at: string;
+  draw_at: string;
+  announcement_message_id: number | null;
+  created_by: number | null;
+  summary_json: string | null;
+  canceled_at: string | null;
+  drawn_at: string | null;
+  created_at: string;
+  updated_at: string;
+  prizes: LotteryPrize[];
+  stats: LotteryStats;
+  winners: LotteryWinner[];
+};
+
+export type LotteryPayload = {
+  title: string;
+  description: string;
+  entry_mode: "free" | "consume_points" | "balance_threshold";
+  points_cost: number;
+  points_threshold: number;
+  allow_multiple_entries: boolean;
+  max_entries_per_user: number;
+  show_participants: boolean;
+  starts_at: string;
+  entry_deadline_at: string;
+  draw_at: string;
+  created_by?: number | null;
+  prizes: LotteryPrize[];
+};
+
 export class ApiError extends Error {
   status: number;
   code: string;
@@ -628,6 +722,56 @@ export class ApiClient {
       method: "POST",
       headers: this.adminHeaders(adminToken),
       body: JSON.stringify({ status }),
+    });
+  }
+
+  listLotteries(chatId: string, adminToken: string) {
+    return this.request<LotteryDetail[]>(`/api/v1/chats/${chatId}/lotteries`, {
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  getLottery(chatId: string, adminToken: string, lotteryId: number) {
+    return this.request<LotteryDetail>(`/api/v1/chats/${chatId}/lotteries/${lotteryId}`, {
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  createLottery(chatId: string, adminToken: string, payload: LotteryPayload) {
+    return this.request<LotteryDetail>(`/api/v1/chats/${chatId}/lotteries`, {
+      method: "POST",
+      headers: this.adminHeaders(adminToken),
+      body: JSON.stringify(payload),
+    });
+  }
+
+  updateLottery(chatId: string, adminToken: string, lotteryId: number, payload: LotteryPayload) {
+    return this.request<LotteryDetail>(`/api/v1/chats/${chatId}/lotteries/${lotteryId}`, {
+      method: "PUT",
+      headers: this.adminHeaders(adminToken),
+      body: JSON.stringify(payload),
+    });
+  }
+
+  getLotteryEntries(chatId: string, adminToken: string, lotteryId: number) {
+    return this.request<LotteryEntry[]>(`/api/v1/chats/${chatId}/lotteries/${lotteryId}/entries`, {
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  cancelLottery(chatId: string, adminToken: string, lotteryId: number) {
+    return this.request<LotteryDetail>(`/api/v1/chats/${chatId}/lotteries/${lotteryId}/cancel`, {
+      method: "POST",
+      headers: this.adminHeaders(adminToken),
+      body: JSON.stringify({}),
+    });
+  }
+
+  drawLottery(chatId: string, adminToken: string, lotteryId: number) {
+    return this.request<LotteryDetail>(`/api/v1/chats/${chatId}/lotteries/${lotteryId}/draw`, {
+      method: "POST",
+      headers: this.adminHeaders(adminToken),
+      body: JSON.stringify({}),
     });
   }
 

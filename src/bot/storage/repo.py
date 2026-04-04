@@ -159,6 +159,10 @@ class BotRepository:
                 ),
             )
 
+    @staticmethod
+    def parse_iso_datetime(value: str) -> datetime:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+
     def get_blacklist_words(self, chat_id: int) -> list[str]:
         with self.db.connect() as conn:
             rows = conn.execute(
@@ -972,6 +976,378 @@ class BotRepository:
                 (redemption_id,),
             ).fetchone()
         return dict(row) if row else None
+
+    def create_lottery(
+        self,
+        *,
+        chat_id: int,
+        title: str,
+        description: str,
+        entry_mode: str,
+        points_cost: int,
+        points_threshold: int,
+        allow_multiple_entries: bool,
+        max_entries_per_user: int,
+        show_participants: bool,
+        starts_at: str,
+        entry_deadline_at: str,
+        draw_at: str,
+        created_by: int | None,
+    ) -> dict[str, Any]:
+        now = to_iso(utc_now())
+        with self.db.connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO chat_lotteries(
+                  chat_id, title, description, status, entry_mode, points_cost, points_threshold,
+                  allow_multiple_entries, max_entries_per_user, show_participants,
+                  starts_at, entry_deadline_at, draw_at, created_by, created_at, updated_at
+                )
+                VALUES(?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    chat_id,
+                    title,
+                    description,
+                    entry_mode,
+                    points_cost,
+                    points_threshold,
+                    1 if allow_multiple_entries else 0,
+                    max_entries_per_user,
+                    1 if show_participants else 0,
+                    starts_at,
+                    entry_deadline_at,
+                    draw_at,
+                    created_by,
+                    now,
+                    now,
+                ),
+            )
+        return self.get_lottery(int(cur.lastrowid)) or {}
+
+    def update_lottery(self, lottery_id: int, payload: dict[str, Any]) -> dict[str, Any] | None:
+        current = self.get_lottery(lottery_id)
+        if current is None:
+            return None
+        merged = {**current, **payload, "updated_at": to_iso(utc_now())}
+        with self.db.connect() as conn:
+            conn.execute(
+                """
+                UPDATE chat_lotteries
+                SET title = ?, description = ?, status = ?, entry_mode = ?, points_cost = ?, points_threshold = ?,
+                    allow_multiple_entries = ?, max_entries_per_user = ?, show_participants = ?,
+                    starts_at = ?, entry_deadline_at = ?, draw_at = ?, announcement_message_id = ?, summary_json = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    merged["title"],
+                    merged.get("description"),
+                    merged["status"],
+                    merged["entry_mode"],
+                    int(merged["points_cost"]),
+                    int(merged["points_threshold"]),
+                    1 if bool(merged["allow_multiple_entries"]) else 0,
+                    int(merged["max_entries_per_user"]),
+                    1 if bool(merged["show_participants"]) else 0,
+                    merged["starts_at"],
+                    merged["entry_deadline_at"],
+                    merged["draw_at"],
+                    merged.get("announcement_message_id"),
+                    merged.get("summary_json"),
+                    merged["updated_at"],
+                    lottery_id,
+                ),
+            )
+        return self.get_lottery(lottery_id)
+
+    def get_lottery(self, lottery_id: int) -> dict[str, Any] | None:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, chat_id, title, description, status, entry_mode, points_cost, points_threshold,
+                       allow_multiple_entries, max_entries_per_user, show_participants,
+                       starts_at, entry_deadline_at, draw_at, announcement_message_id, created_by,
+                       summary_json, canceled_at, drawn_at, created_at, updated_at
+                FROM chat_lotteries
+                WHERE id = ?
+                """,
+                (lottery_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def list_lotteries(self, chat_id: int, limit: int = 50) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, chat_id, title, description, status, entry_mode, points_cost, points_threshold,
+                       allow_multiple_entries, max_entries_per_user, show_participants,
+                       starts_at, entry_deadline_at, draw_at, announcement_message_id, created_by,
+                       summary_json, canceled_at, drawn_at, created_at, updated_at
+                FROM chat_lotteries
+                WHERE chat_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (chat_id, limit),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def replace_lottery_prizes(self, lottery_id: int, prizes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        now = to_iso(utc_now())
+        with self.db.connect() as conn:
+            conn.execute("DELETE FROM chat_lottery_prizes WHERE lottery_id = ?", (lottery_id,))
+            for idx, prize in enumerate(prizes):
+                conn.execute(
+                    """
+                    INSERT INTO chat_lottery_prizes(lottery_id, title, winner_count, sort_order, created_at)
+                    VALUES(?, ?, ?, ?, ?)
+                    """,
+                    (
+                        lottery_id,
+                        str(prize.get("title", "")).strip(),
+                        max(int(prize.get("winner_count", 1)), 0),
+                        int(prize.get("sort_order", idx)),
+                        now,
+                    ),
+                )
+        return self.list_lottery_prizes(lottery_id)
+
+    def list_lottery_prizes(self, lottery_id: int) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, lottery_id, title, winner_count, sort_order, created_at
+                FROM chat_lottery_prizes
+                WHERE lottery_id = ?
+                ORDER BY sort_order ASC, id ASC
+                """,
+                (lottery_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def create_lottery_entry(
+        self,
+        *,
+        lottery_id: int,
+        chat_id: int,
+        user_id: int,
+        entry_count: int,
+        points_spent: int,
+        source: str,
+        ledger_id: int | None,
+    ) -> dict[str, Any]:
+        now = to_iso(utc_now())
+        with self.db.connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO chat_lottery_entries(
+                  lottery_id, chat_id, user_id, entry_count, points_spent, source, status, ledger_id, created_at, updated_at
+                )
+                VALUES(?, ?, ?, ?, ?, ?, 'joined', ?, ?, ?)
+                """,
+                (lottery_id, chat_id, user_id, entry_count, points_spent, source, ledger_id, now, now),
+            )
+        return self.get_lottery_entry(int(cur.lastrowid)) or {}
+
+    def get_lottery_entry(self, entry_id: int) -> dict[str, Any] | None:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, lottery_id, chat_id, user_id, entry_count, points_spent, source, status, ledger_id, refund_ledger_id, created_at, updated_at
+                FROM chat_lottery_entries
+                WHERE id = ?
+                """,
+                (entry_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def list_lottery_entries(self, lottery_id: int, user_id: int | None = None) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            if user_id is None:
+                rows = conn.execute(
+                    """
+                    SELECT e.id, e.lottery_id, e.chat_id, e.user_id, e.entry_count, e.points_spent, e.source, e.status,
+                           e.ledger_id, e.refund_ledger_id, e.created_at, e.updated_at,
+                           u.username, u.first_name, u.last_name
+                    FROM chat_lottery_entries e
+                    LEFT JOIN users u ON u.user_id = e.user_id
+                    WHERE e.lottery_id = ?
+                    ORDER BY e.id DESC
+                    """,
+                    (lottery_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT e.id, e.lottery_id, e.chat_id, e.user_id, e.entry_count, e.points_spent, e.source, e.status,
+                           e.ledger_id, e.refund_ledger_id, e.created_at, e.updated_at,
+                           u.username, u.first_name, u.last_name
+                    FROM chat_lottery_entries e
+                    LEFT JOIN users u ON u.user_id = e.user_id
+                    WHERE e.lottery_id = ? AND e.user_id = ?
+                    ORDER BY e.id DESC
+                    """,
+                    (lottery_id, user_id),
+                ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_lottery_user_entry_stats(self, lottery_id: int, user_id: int) -> dict[str, Any]:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                  COALESCE(SUM(entry_count), 0) AS total_entry_count,
+                  COUNT(*) AS join_times,
+                  COALESCE(SUM(points_spent), 0) AS total_points_spent
+                FROM chat_lottery_entries
+                WHERE lottery_id = ? AND user_id = ? AND status = 'joined'
+                """,
+                (lottery_id, user_id),
+            ).fetchone()
+        return dict(row) if row else {"total_entry_count": 0, "join_times": 0, "total_points_spent": 0}
+
+    def get_lottery_stats(self, lottery_id: int) -> dict[str, Any]:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                  COUNT(*) AS join_records,
+                  COUNT(DISTINCT user_id) AS unique_users,
+                  COALESCE(SUM(entry_count), 0) AS total_entry_count,
+                  COALESCE(SUM(points_spent), 0) AS total_points_spent
+                FROM chat_lottery_entries
+                WHERE lottery_id = ? AND status = 'joined'
+                """,
+                (lottery_id,),
+            ).fetchone()
+        stats = dict(row) if row else {"join_records": 0, "unique_users": 0, "total_entry_count": 0, "total_points_spent": 0}
+        stats["winner_count"] = len(self.list_lottery_winners(lottery_id))
+        return stats
+
+    def mark_lottery_entry_refunded(self, entry_id: int, refund_ledger_id: int) -> dict[str, Any] | None:
+        now = to_iso(utc_now())
+        with self.db.connect() as conn:
+            conn.execute(
+                """
+                UPDATE chat_lottery_entries
+                SET status = 'refunded', refund_ledger_id = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (refund_ledger_id, now, entry_id),
+            )
+        return self.get_lottery_entry(entry_id)
+
+    def save_lottery_winner(
+        self,
+        *,
+        lottery_id: int,
+        prize_id: int,
+        chat_id: int,
+        user_id: int,
+        prize_title: str,
+        sort_order: int,
+        entry_count: int,
+        snapshot_json: str | None,
+    ) -> dict[str, Any]:
+        now = to_iso(utc_now())
+        with self.db.connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO chat_lottery_winners(
+                  lottery_id, prize_id, chat_id, user_id, prize_title, sort_order, entry_count, snapshot_json, created_at
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (lottery_id, prize_id, chat_id, user_id, prize_title, sort_order, entry_count, snapshot_json, now),
+            )
+        return self.get_lottery_winner(int(cur.lastrowid)) or {}
+
+    def get_lottery_winner(self, winner_id: int) -> dict[str, Any] | None:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT w.id, w.lottery_id, w.prize_id, w.chat_id, w.user_id, w.prize_title, w.sort_order, w.entry_count, w.snapshot_json, w.created_at,
+                       u.username, u.first_name, u.last_name
+                FROM chat_lottery_winners w
+                LEFT JOIN users u ON u.user_id = w.user_id
+                WHERE w.id = ?
+                """,
+                (winner_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def list_lottery_winners(self, lottery_id: int) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT w.id, w.lottery_id, w.prize_id, w.chat_id, w.user_id, w.prize_title, w.sort_order, w.entry_count, w.snapshot_json, w.created_at,
+                       u.username, u.first_name, u.last_name
+                FROM chat_lottery_winners w
+                LEFT JOIN users u ON u.user_id = w.user_id
+                WHERE w.lottery_id = ?
+                ORDER BY w.sort_order ASC, w.id ASC
+                """,
+                (lottery_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def update_lottery_status(
+        self,
+        lottery_id: int,
+        *,
+        status: str,
+        operator: str,
+        summary_json: str | None = None,
+        announcement_message_id: int | None = None,
+    ) -> dict[str, Any] | None:
+        lottery = self.get_lottery(lottery_id)
+        if lottery is None:
+            return None
+        now = to_iso(utc_now())
+        canceled_at = now if status == "canceled" else lottery.get("canceled_at")
+        drawn_at = now if status == "drawn" else lottery.get("drawn_at")
+        with self.db.connect() as conn:
+            conn.execute(
+                """
+                UPDATE chat_lotteries
+                SET status = ?, summary_json = ?, announcement_message_id = ?, canceled_at = ?, drawn_at = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    status,
+                    summary_json if summary_json is not None else lottery.get("summary_json"),
+                    announcement_message_id if announcement_message_id is not None else lottery.get("announcement_message_id"),
+                    canceled_at,
+                    drawn_at,
+                    now,
+                    lottery_id,
+                ),
+            )
+        return self.get_lottery(lottery_id)
+
+    def list_due_lotteries(self, draw_at_iso: str) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, chat_id, title, description, status, entry_mode, points_cost, points_threshold,
+                       allow_multiple_entries, max_entries_per_user, show_participants,
+                       starts_at, entry_deadline_at, draw_at, announcement_message_id, created_by,
+                       summary_json, canceled_at, drawn_at, created_at, updated_at
+                FROM chat_lotteries
+                WHERE status = 'active' AND draw_at <= ?
+                ORDER BY draw_at ASC, id ASC
+                """,
+                (draw_at_iso,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def set_lottery_announcement_message(self, lottery_id: int, message_id: int) -> dict[str, Any] | None:
+        with self.db.connect() as conn:
+            conn.execute(
+                "UPDATE chat_lotteries SET announcement_message_id = ?, updated_at = ? WHERE id = ?",
+                (message_id, to_iso(utc_now()), lottery_id),
+            )
+        return self.get_lottery(lottery_id)
 
     def get_active_welcome_bonus(self, chat_id: int, user_id: int) -> dict[str, Any] | None:
         with self.db.connect() as conn:

@@ -26,6 +26,9 @@ export const queryKeys = {
   pointsLeaderboard: (baseUrl: string, chatId: string, adminToken: string) => ["pointsLeaderboard", baseUrl, chatId, adminToken] as const,
   pointsLedger: (baseUrl: string, chatId: string, userId: string, adminToken: string) =>
     ["pointsLedger", baseUrl, chatId, userId, adminToken] as const,
+  lotteries: (baseUrl: string, chatId: string, adminToken: string) => ["lotteries", baseUrl, chatId, adminToken] as const,
+  lotteryEntries: (baseUrl: string, chatId: string, lotteryId: number | null, adminToken: string) =>
+    ["lotteryEntries", baseUrl, chatId, lotteryId, adminToken] as const,
   audits: (baseUrl: string, chatId: string, adminToken: string) => ["audits", baseUrl, chatId, adminToken] as const,
   enforcements: (baseUrl: string, chatId: string, adminToken: string) => ["enforcements", baseUrl, chatId, adminToken] as const,
   appeals: (baseUrl: string, chatId: string, adminToken: string) => ["appeals", baseUrl, chatId, adminToken] as const,

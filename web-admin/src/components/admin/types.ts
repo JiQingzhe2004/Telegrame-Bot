@@ -5,6 +5,8 @@ import type {
   AuditRecord,
   ChatMemberBrief,
   ChatPointsConfig,
+  LotteryDetail,
+  LotteryEntry,
   PointsCheckinState,
   ChatSettings,
   EnforcementRecord,
@@ -33,6 +35,8 @@ export type AdminDataBundle = {
   pointsRedemptions: PointsRedemption[];
   pointsLeaderboard: PointsBalance[];
   pointsLedger: PointsLedgerEntry[];
+  lotteries: LotteryDetail[];
+  lotteryEntries: LotteryEntry[];
   audits: AuditRecord[];
   enforcements: EnforcementRecord[];
   appeals: AppealRecord[];
