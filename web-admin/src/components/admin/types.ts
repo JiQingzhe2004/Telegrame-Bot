@@ -4,10 +4,13 @@ import type {
   AppealRecord,
   AuditRecord,
   ChatMemberBrief,
+  ChatPointsConfig,
   ChatSettings,
   EnforcementRecord,
   ListItem,
   KnownChat,
+  PointsBalance,
+  PointsLedgerEntry,
 } from "@/lib/api";
 
 export type AdminDataBundle = {
@@ -18,6 +21,9 @@ export type AdminDataBundle = {
   members: ChatMemberBrief[];
   whitelist: ListItem[];
   blacklist: ListItem[];
+  pointsConfig?: ChatPointsConfig;
+  pointsLeaderboard: PointsBalance[];
+  pointsLedger: PointsLedgerEntry[];
   audits: AuditRecord[];
   enforcements: EnforcementRecord[];
   appeals: AppealRecord[];

@@ -89,6 +89,12 @@ class BotRepository:
             rate_limit_policy=row["rate_limit_policy"],
             language=row["language"],
             level3_mute_seconds=int(row["level3_mute_seconds"]),
+            points_enabled=bool(row["points_enabled"]),
+            points_message_reward=int(row["points_message_reward"]),
+            points_message_cooldown_seconds=int(row["points_message_cooldown_seconds"]),
+            points_daily_cap=int(row["points_daily_cap"]),
+            points_transfer_enabled=bool(row["points_transfer_enabled"]),
+            points_transfer_min_amount=int(row["points_transfer_min_amount"]),
         )
 
     def update_settings(self, chat_id: int, payload: dict[str, Any]) -> None:
@@ -97,8 +103,12 @@ class BotRepository:
         with self.db.connect() as conn:
             conn.execute(
                 """
-                INSERT INTO chat_settings(chat_id, mode, ai_enabled, ai_threshold, allow_admin_self_test, action_policy, rate_limit_policy, language, level3_mute_seconds, updated_at)
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO chat_settings(
+                  chat_id, mode, ai_enabled, ai_threshold, allow_admin_self_test, action_policy, rate_limit_policy, language,
+                  level3_mute_seconds, points_enabled, points_message_reward, points_message_cooldown_seconds, points_daily_cap,
+                  points_transfer_enabled, points_transfer_min_amount, updated_at
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(chat_id) DO UPDATE SET
                   mode=excluded.mode,
                   ai_enabled=excluded.ai_enabled,
@@ -108,6 +118,12 @@ class BotRepository:
                   rate_limit_policy=excluded.rate_limit_policy,
                   language=excluded.language,
                   level3_mute_seconds=excluded.level3_mute_seconds,
+                  points_enabled=excluded.points_enabled,
+                  points_message_reward=excluded.points_message_reward,
+                  points_message_cooldown_seconds=excluded.points_message_cooldown_seconds,
+                  points_daily_cap=excluded.points_daily_cap,
+                  points_transfer_enabled=excluded.points_transfer_enabled,
+                  points_transfer_min_amount=excluded.points_transfer_min_amount,
                   updated_at=excluded.updated_at
                 """,
                 (
@@ -120,6 +136,12 @@ class BotRepository:
                     new["rate_limit_policy"],
                     new["language"],
                     int(new["level3_mute_seconds"]),
+                    1 if new["points_enabled"] else 0,
+                    int(new["points_message_reward"]),
+                    int(new["points_message_cooldown_seconds"]),
+                    int(new["points_daily_cap"]),
+                    1 if new["points_transfer_enabled"] else 0,
+                    int(new["points_transfer_min_amount"]),
                     to_iso(utc_now()),
                 ),
             )
@@ -371,6 +393,8 @@ class BotRepository:
             decisions = conn.execute("SELECT COUNT(*) AS c FROM moderation_decisions").fetchone()["c"]
             enforcements = conn.execute("SELECT COUNT(*) AS c FROM enforcements").fetchone()["c"]
             ai_used = conn.execute("SELECT COUNT(*) AS c FROM moderation_decisions WHERE ai_used = 1").fetchone()["c"]
+            point_accounts = conn.execute("SELECT COUNT(*) AS c FROM chat_points_accounts").fetchone()["c"]
+            point_ledger = conn.execute("SELECT COUNT(*) AS c FROM chat_points_ledger").fetchone()["c"]
             latest = conn.execute(
                 "SELECT created_at FROM moderation_decisions ORDER BY id DESC LIMIT 1"
             ).fetchone()
@@ -378,8 +402,250 @@ class BotRepository:
             "decisions_total": int(decisions),
             "enforcements_total": int(enforcements),
             "ai_used_total": int(ai_used),
+            "points_accounts_total": int(point_accounts),
+            "points_ledger_total": int(point_ledger),
             "latest_decision_at": latest["created_at"] if latest else None,
         }
+
+    def _get_points_account_row(self, chat_id: int, user_id: int) -> dict[str, Any]:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT chat_id, user_id, balance, total_earned, total_spent, last_changed_at
+                FROM chat_points_accounts
+                WHERE chat_id = ? AND user_id = ?
+                """,
+                (chat_id, user_id),
+            ).fetchone()
+            if row is None:
+                now = to_iso(utc_now())
+                conn.execute(
+                    """
+                    INSERT INTO chat_points_accounts(chat_id, user_id, balance, total_earned, total_spent, last_changed_at)
+                    VALUES(?, ?, 0, 0, 0, ?)
+                    """,
+                    (chat_id, user_id, now),
+                )
+                row = conn.execute(
+                    """
+                    SELECT chat_id, user_id, balance, total_earned, total_spent, last_changed_at
+                    FROM chat_points_accounts
+                    WHERE chat_id = ? AND user_id = ?
+                    """,
+                    (chat_id, user_id),
+                ).fetchone()
+        return dict(row)
+
+    def get_points_balance(self, chat_id: int, user_id: int) -> dict[str, Any]:
+        account = self._get_points_account_row(chat_id, user_id)
+        with self.db.connect() as conn:
+            user = conn.execute(
+                "SELECT username, first_name, last_name FROM users WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+        return {
+            **account,
+            "username": user["username"] if user else None,
+            "first_name": user["first_name"] if user else None,
+            "last_name": user["last_name"] if user else None,
+        }
+
+    def list_points_leaderboard(self, chat_id: int, limit: int = 20) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                  a.chat_id,
+                  a.user_id,
+                  a.balance,
+                  a.total_earned,
+                  a.total_spent,
+                  a.last_changed_at,
+                  u.username,
+                  u.first_name,
+                  u.last_name
+                FROM chat_points_accounts a
+                LEFT JOIN users u ON u.user_id = a.user_id
+                WHERE a.chat_id = ?
+                ORDER BY a.balance DESC, a.total_earned DESC, a.user_id ASC
+                LIMIT ?
+                """,
+                (chat_id, limit),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def list_points_ledger(self, chat_id: int, limit: int = 100, user_id: int | None = None) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            if user_id is None:
+                rows = conn.execute(
+                    """
+                    SELECT id, chat_id, user_id, counterparty_user_id, change_amount, balance_after, event_type, reason, operator, created_at
+                    FROM chat_points_ledger
+                    WHERE chat_id = ?
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (chat_id, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT id, chat_id, user_id, counterparty_user_id, change_amount, balance_after, event_type, reason, operator, created_at
+                    FROM chat_points_ledger
+                    WHERE chat_id = ? AND user_id = ?
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (chat_id, user_id, limit),
+                ).fetchall()
+        return [dict(r) for r in rows]
+
+    def _today_points_earned(self, chat_id: int, user_id: int) -> int:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT COALESCE(SUM(change_amount), 0) AS earned
+                FROM chat_points_ledger
+                WHERE chat_id = ?
+                  AND user_id = ?
+                  AND event_type = 'message_reward'
+                  AND change_amount > 0
+                  AND date(created_at) = date('now')
+                """,
+                (chat_id, user_id),
+            ).fetchone()
+        return int(row["earned"]) if row else 0
+
+    def _last_message_reward_at(self, chat_id: int, user_id: int) -> datetime | None:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT created_at
+                FROM chat_points_ledger
+                WHERE chat_id = ? AND user_id = ? AND event_type = 'message_reward'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (chat_id, user_id),
+            ).fetchone()
+        if not row or not row["created_at"]:
+            return None
+        return datetime.fromisoformat(str(row["created_at"]).replace("Z", "+00:00"))
+
+    def adjust_points(
+        self,
+        *,
+        chat_id: int,
+        user_id: int,
+        amount: int,
+        event_type: str,
+        operator: str,
+        reason: str | None = None,
+        counterparty_user_id: int | None = None,
+    ) -> dict[str, Any]:
+        if amount == 0:
+            raise ValueError("points_amount_must_not_be_zero")
+        now = to_iso(utc_now())
+        account = self._get_points_account_row(chat_id, user_id)
+        current_balance = int(account["balance"])
+        next_balance = current_balance + amount
+        if next_balance < 0:
+            raise ValueError("insufficient_points")
+        total_earned = int(account["total_earned"]) + max(amount, 0)
+        total_spent = int(account["total_spent"]) + max(-amount, 0)
+        with self.db.connect() as conn:
+            conn.execute(
+                """
+                UPDATE chat_points_accounts
+                SET balance = ?, total_earned = ?, total_spent = ?, last_changed_at = ?
+                WHERE chat_id = ? AND user_id = ?
+                """,
+                (next_balance, total_earned, total_spent, now, chat_id, user_id),
+            )
+            cur = conn.execute(
+                """
+                INSERT INTO chat_points_ledger(chat_id, user_id, counterparty_user_id, change_amount, balance_after, event_type, reason, operator, created_at)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (chat_id, user_id, counterparty_user_id, amount, next_balance, event_type, reason, operator, now),
+            )
+        return {
+            "ledger_id": int(cur.lastrowid),
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "counterparty_user_id": counterparty_user_id,
+            "change_amount": amount,
+            "balance_after": next_balance,
+            "event_type": event_type,
+            "reason": reason,
+            "operator": operator,
+            "created_at": now,
+        }
+
+    def maybe_reward_message_points(self, chat_id: int, user_id: int, text: str | None, settings: ChatSettings) -> dict[str, Any]:
+        normalized = (text or "").strip()
+        if not settings.points_enabled:
+            return {"awarded": False, "reason": "points_disabled"}
+        if not normalized:
+            return {"awarded": False, "reason": "empty_message"}
+        if settings.points_message_reward <= 0:
+            return {"awarded": False, "reason": "reward_disabled"}
+        now = utc_now()
+        last_award = self._last_message_reward_at(chat_id, user_id)
+        if last_award is not None:
+            elapsed = (now - last_award.astimezone(now.tzinfo)).total_seconds()
+            if elapsed < settings.points_message_cooldown_seconds:
+                return {"awarded": False, "reason": "cooldown"}
+        earned_today = self._today_points_earned(chat_id, user_id)
+        if earned_today >= settings.points_daily_cap:
+            return {"awarded": False, "reason": "daily_cap"}
+        remaining_today = settings.points_daily_cap - earned_today
+        award = min(settings.points_message_reward, remaining_today)
+        if award <= 0:
+            return {"awarded": False, "reason": "daily_cap"}
+        entry = self.adjust_points(
+            chat_id=chat_id,
+            user_id=user_id,
+            amount=award,
+            event_type="message_reward",
+            operator="system",
+            reason="message_reward",
+        )
+        return {"awarded": True, "amount": award, "entry": entry}
+
+    def transfer_points(
+        self,
+        *,
+        chat_id: int,
+        from_user_id: int,
+        to_user_id: int,
+        amount: int,
+        operator: str,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        if amount <= 0:
+            raise ValueError("transfer_amount_must_be_positive")
+        if from_user_id == to_user_id:
+            raise ValueError("cannot_transfer_to_self")
+        debit = self.adjust_points(
+            chat_id=chat_id,
+            user_id=from_user_id,
+            amount=-amount,
+            event_type="transfer_out",
+            operator=operator,
+            reason=reason or "points_transfer",
+            counterparty_user_id=to_user_id,
+        )
+        credit = self.adjust_points(
+            chat_id=chat_id,
+            user_id=to_user_id,
+            amount=amount,
+            event_type="transfer_in",
+            operator=operator,
+            reason=reason or "points_transfer",
+            counterparty_user_id=from_user_id,
+        )
+        return {"from": debit, "to": credit}
 
     def list_chats(self, limit: int = 200) -> list[dict[str, Any]]:
         with self.db.connect() as conn:

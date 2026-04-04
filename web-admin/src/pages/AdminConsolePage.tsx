@@ -5,6 +5,7 @@ import {
   Info,
   Users,
   Bot,
+  Coins,
   ShieldCheck,
   ListOrdered,
   FileSearch,
@@ -32,6 +33,7 @@ import { GroupManagePanel } from "@/components/admin/GroupManagePanel";
 import { GroupInfoPanel } from "@/components/admin/GroupInfoPanel";
 import { AiConfigPanel } from "@/components/admin/AiConfigPanel";
 import { PolicyConfigPanel } from "@/components/admin/PolicyConfigPanel";
+import { PointsPanel } from "@/components/admin/PointsPanel";
 import { ListManagePanel } from "@/components/admin/ListManagePanel";
 import { AuditCenterPanel } from "@/components/admin/AuditCenterPanel";
 import { EnforcementPanel } from "@/components/admin/EnforcementPanel";
@@ -51,6 +53,7 @@ const menuItems: readonly SidebarItem[] = [
   { key: "group-members", icon: Users, label: "成员管理" },
   { key: "ai", icon: Bot, label: "AI 配置" },
   { key: "policy", icon: ShieldCheck, label: "策略配置" },
+  { key: "points", icon: Coins, label: "积分管理" },
   { key: "lists", icon: ListOrdered, label: "名单管理" },
   { key: "audit", icon: FileSearch, label: "审计中心" },
   { key: "enforcement", icon: Zap, label: "处置记录" },
@@ -90,6 +93,7 @@ export function AdminConsolePage({
   const [permissionChecking, setPermissionChecking] = useState(false);
   const [savingRuntimeConfig, setSavingRuntimeConfig] = useState(false);
   const [generatingVerificationQuestions, setGeneratingVerificationQuestions] = useState(false);
+  const [queriedPointsUserId, setQueriedPointsUserId] = useState("");
 
   useEffect(() => writeStorage("bot_member_keyword", memberKeyword), [memberKeyword]);
 
@@ -181,6 +185,36 @@ export function AdminConsolePage({
     refetchInterval: menuKey === "lists" ? 15000 : false,
     refetchOnWindowFocus: false,
   });
+  const pointsConfigQuery = useQuery({
+    queryKey: queryKeys.pointsConfig(baseUrl, chatId, adminToken),
+    queryFn: () => api.getPointsConfig(chatId, adminToken),
+    enabled: authed && chatReady,
+    placeholderData: keepCurrentChatData,
+    refetchInterval: menuKey === "points" ? 15000 : false,
+    refetchOnWindowFocus: false,
+  });
+  const pointsLeaderboardQuery = useQuery({
+    queryKey: queryKeys.pointsLeaderboard(baseUrl, chatId, adminToken),
+    queryFn: () => api.getPointsLeaderboard(chatId, adminToken, 20),
+    enabled: authed && chatReady,
+    placeholderData: keepCurrentChatData,
+    refetchInterval: menuKey === "points" ? 15000 : false,
+    refetchOnWindowFocus: false,
+  });
+  const pointsLedgerQuery = useQuery({
+    queryKey: queryKeys.pointsLedger(baseUrl, chatId, "", adminToken),
+    queryFn: () => api.getPointsLedger(chatId, adminToken, 100),
+    enabled: authed && chatReady,
+    placeholderData: keepCurrentChatData,
+    refetchInterval: menuKey === "points" ? 15000 : false,
+    refetchOnWindowFocus: false,
+  });
+  const pointsBalanceQuery = useQuery({
+    queryKey: queryKeys.pointsBalance(baseUrl, chatId, queriedPointsUserId, adminToken),
+    queryFn: () => api.getPointsBalance(chatId, adminToken, queriedPointsUserId),
+    enabled: authed && chatReady && Boolean(queriedPointsUserId),
+    refetchOnWindowFocus: false,
+  });
   const auditsQuery = useQuery({
     queryKey: queryKeys.audits(baseUrl, chatId, adminToken),
     queryFn: () => api.listAudits(chatId, adminToken, 100),
@@ -213,7 +247,10 @@ export function AdminConsolePage({
     overviewQuery.isLoading ||
     membersQuery.isLoading ||
     verificationQuestionsQuery.isLoading ||
-    runtimeConfigQuery.isLoading;
+    runtimeConfigQuery.isLoading ||
+    pointsConfigQuery.isLoading ||
+    pointsLeaderboardQuery.isLoading ||
+    pointsLedgerQuery.isLoading;
 
   useEffect(() => {
     if (
@@ -226,6 +263,10 @@ export function AdminConsolePage({
       verificationQuestionsQuery.data ||
       whitelistQuery.data ||
       blacklistQuery.data ||
+      pointsConfigQuery.data ||
+      pointsLeaderboardQuery.data ||
+      pointsLedgerQuery.data ||
+      pointsBalanceQuery.data ||
       auditsQuery.data ||
       enforcementsQuery.data ||
       appealsQuery.data
@@ -242,6 +283,10 @@ export function AdminConsolePage({
     verificationQuestionsQuery.data,
     whitelistQuery.data,
     blacklistQuery.data,
+    pointsConfigQuery.data,
+    pointsLeaderboardQuery.data,
+    pointsLedgerQuery.data,
+    pointsBalanceQuery.data,
     auditsQuery.data,
     enforcementsQuery.data,
     appealsQuery.data,
@@ -257,6 +302,10 @@ export function AdminConsolePage({
     verificationQuestionsQuery.isFetching ||
     whitelistQuery.isFetching ||
     blacklistQuery.isFetching ||
+    pointsConfigQuery.isFetching ||
+    pointsLeaderboardQuery.isFetching ||
+    pointsLedgerQuery.isFetching ||
+    pointsBalanceQuery.isFetching ||
     auditsQuery.isFetching ||
     enforcementsQuery.isFetching ||
     appealsQuery.isFetching;
@@ -271,6 +320,7 @@ export function AdminConsolePage({
       if (menuKey === "ai") tasks.push(verificationQuestionsQuery.refetch());
       if (menuKey === "group-members") tasks.push(membersQuery.refetch());
       if (menuKey === "lists") tasks.push(whitelistQuery.refetch(), blacklistQuery.refetch());
+      if (menuKey === "points") tasks.push(pointsConfigQuery.refetch(), pointsLeaderboardQuery.refetch(), pointsLedgerQuery.refetch());
       if (menuKey === "audit") tasks.push(auditsQuery.refetch());
       if (menuKey === "enforcement") tasks.push(enforcementsQuery.refetch());
       if (menuKey === "appeals") tasks.push(appealsQuery.refetch());
@@ -504,6 +554,9 @@ export function AdminConsolePage({
     members: membersQuery.data ?? [],
     whitelist: whitelistQuery.data ?? [],
     blacklist: blacklistQuery.data ?? [],
+    pointsConfig: pointsConfigQuery.data,
+    pointsLeaderboard: pointsLeaderboardQuery.data ?? [],
+    pointsLedger: pointsLedgerQuery.data ?? [],
     audits: (auditsQuery.data ?? []).filter((item) => !globalSearch || item.rule_hit.includes(globalSearch)),
     enforcements: (enforcementsQuery.data ?? []).filter((item) => !globalSearch || item.reason.includes(globalSearch)),
     appeals: (appealsQuery.data ?? []).filter((item) => !globalSearch || item.message.includes(globalSearch)),
@@ -616,6 +669,32 @@ export function AdminConsolePage({
       );
     }
     if (menuKey === "policy") return <PolicyConfigPanel data={bundle} actions={actions} />;
+    if (menuKey === "points") {
+      return (
+        <PointsPanel
+          data={bundle}
+          balance={pointsBalanceQuery.data}
+          queriedUserId={queriedPointsUserId}
+          setQueriedUserId={setQueriedPointsUserId}
+          onRefresh={async () => {
+            await Promise.all([pointsConfigQuery.refetch(), pointsLeaderboardQuery.refetch(), pointsLedgerQuery.refetch()]);
+          }}
+          onQueryBalance={async () => {
+            await pointsBalanceQuery.refetch();
+          }}
+          onSaveConfig={async (payload) => {
+            await api.updatePointsConfig(chatId, adminToken, payload);
+            toast.success("积分配置已更新");
+            await pointsConfigQuery.refetch();
+          }}
+          onAdjustPoints={async (payload) => {
+            await api.adjustPoints(chatId, adminToken, payload);
+            toast.success("积分已调整");
+            await Promise.all([pointsLeaderboardQuery.refetch(), pointsLedgerQuery.refetch(), pointsBalanceQuery.refetch()]);
+          }}
+        />
+      );
+    }
     if (menuKey === "lists") return <ListManagePanel data={bundle} actions={actions} />;
     if (menuKey === "audit") return <AuditCenterPanel data={bundle} />;
     if (menuKey === "enforcement") return <EnforcementPanel data={bundle} actions={actions} />;

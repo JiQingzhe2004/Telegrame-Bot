@@ -8,7 +8,23 @@ export type ChatSettings = {
   rate_limit_policy: string;
   language: string;
   level3_mute_seconds: number;
+  points_enabled: boolean;
+  points_message_reward: number;
+  points_message_cooldown_seconds: number;
+  points_daily_cap: number;
+  points_transfer_enabled: boolean;
+  points_transfer_min_amount: number;
 };
+
+export type ChatPointsConfig = Pick<
+  ChatSettings,
+  | "points_enabled"
+  | "points_message_reward"
+  | "points_message_cooldown_seconds"
+  | "points_daily_cap"
+  | "points_transfer_enabled"
+  | "points_transfer_min_amount"
+>;
 
 type ApiEnvelope<T> = {
   ok: boolean;
@@ -191,6 +207,31 @@ export type VerificationQuestionGenerateResult = {
   model: string;
   count: number;
   items: VerificationQuestion[];
+};
+
+export type PointsBalance = {
+  chat_id: number;
+  user_id: number;
+  balance: number;
+  total_earned: number;
+  total_spent: number;
+  last_changed_at: string;
+  username: string | null;
+  first_name: string | null;
+  last_name: string | null;
+};
+
+export type PointsLedgerEntry = {
+  id: number;
+  chat_id: number;
+  user_id: number;
+  counterparty_user_id: number | null;
+  change_amount: number;
+  balance_after: number;
+  event_type: string;
+  reason: string | null;
+  operator: string;
+  created_at: string;
 };
 
 export class ApiError extends Error {
@@ -407,6 +448,47 @@ export class ApiClient {
   getSettings(chatId: string, adminToken: string) {
     return this.request<ChatSettings>(`/api/v1/chats/${chatId}/settings`, {
       headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  getPointsConfig(chatId: string, adminToken: string) {
+    return this.request<ChatPointsConfig>(`/api/v1/chats/${chatId}/points/config`, {
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  updatePointsConfig(chatId: string, adminToken: string, payload: Partial<ChatPointsConfig>) {
+    return this.request<ChatPointsConfig>(`/api/v1/chats/${chatId}/points/config`, {
+      method: "PUT",
+      headers: this.adminHeaders(adminToken),
+      body: JSON.stringify(payload),
+    });
+  }
+
+  getPointsBalance(chatId: string, adminToken: string, userId: string) {
+    return this.request<PointsBalance>(`/api/v1/chats/${chatId}/points/balance/${userId}`, {
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  getPointsLeaderboard(chatId: string, adminToken: string, limit = 20) {
+    return this.request<PointsBalance[]>(`/api/v1/chats/${chatId}/points/leaderboard?limit=${limit}`, {
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  getPointsLedger(chatId: string, adminToken: string, limit = 100, userId?: string) {
+    const query = userId ? `?limit=${limit}&user_id=${encodeURIComponent(userId)}` : `?limit=${limit}`;
+    return this.request<PointsLedgerEntry[]>(`/api/v1/chats/${chatId}/points/ledger${query}`, {
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  adjustPoints(chatId: string, adminToken: string, payload: { user_id: string; amount: number; reason?: string }) {
+    return this.request<PointsLedgerEntry>(`/api/v1/chats/${chatId}/points/adjust`, {
+      method: "POST",
+      headers: this.adminHeaders(adminToken),
+      body: JSON.stringify(payload),
     });
   }
 

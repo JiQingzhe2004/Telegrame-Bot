@@ -264,6 +264,43 @@ MIGRATIONS: list[Migration] = [
         WHERE ai_status IS NULL OR ai_status = '' OR ai_status = 'skipped';
         """,
     ),
+    Migration(
+        version="0009_chat_points",
+        sql="""
+        ALTER TABLE chat_settings ADD COLUMN points_enabled INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE chat_settings ADD COLUMN points_message_reward INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE chat_settings ADD COLUMN points_message_cooldown_seconds INTEGER NOT NULL DEFAULT 60;
+        ALTER TABLE chat_settings ADD COLUMN points_daily_cap INTEGER NOT NULL DEFAULT 20;
+        ALTER TABLE chat_settings ADD COLUMN points_transfer_enabled INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE chat_settings ADD COLUMN points_transfer_min_amount INTEGER NOT NULL DEFAULT 1;
+
+        CREATE TABLE IF NOT EXISTS chat_points_accounts(
+          chat_id INTEGER NOT NULL,
+          user_id INTEGER NOT NULL,
+          balance INTEGER NOT NULL DEFAULT 0,
+          total_earned INTEGER NOT NULL DEFAULT 0,
+          total_spent INTEGER NOT NULL DEFAULT 0,
+          last_changed_at TEXT NOT NULL,
+          PRIMARY KEY(chat_id, user_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_points_accounts_chat_balance ON chat_points_accounts(chat_id, balance DESC);
+
+        CREATE TABLE IF NOT EXISTS chat_points_ledger(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          chat_id INTEGER NOT NULL,
+          user_id INTEGER NOT NULL,
+          counterparty_user_id INTEGER,
+          change_amount INTEGER NOT NULL,
+          balance_after INTEGER NOT NULL,
+          event_type TEXT NOT NULL,
+          reason TEXT,
+          operator TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_points_ledger_chat_created ON chat_points_ledger(chat_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_points_ledger_chat_user_created ON chat_points_ledger(chat_id, user_id, created_at DESC);
+        """,
+    ),
 ]
 
 

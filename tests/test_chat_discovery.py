@@ -5,19 +5,21 @@ from unittest.mock import AsyncMock, patch
 from telegram import Chat
 from telegram.error import TelegramError
 
-from bot.domain.models import ChatRef, ModerationDecision
+from bot.domain.models import ChatRef, ModerationDecision, UserRef
 from bot.domain.moderation import PermissionSnapshot
 from bot.storage.db import Database
 from bot.storage.migrations import migrate
 from bot.storage.repo import BotRepository
 from bot.telegram.adapter_ptb import (
+    _register_bot_commands,
+    on_points_self_callback,
     VERIFY_CALLBACK_PREFIX,
     _verification_timeout,
     on_group_message,
     on_join_verify_callback,
     on_new_chat_members,
 )
-from bot.telegram.commands import status_cmd
+from bot.telegram.commands import pay_cmd, points_cmd, rank_cmd, status_cmd
 from bot.utils.time import utc_now
 
 
@@ -343,3 +345,116 @@ def test_new_chat_members_skips_verification_setup_when_restrict_fails(tmp_path)
         chat_id=-100125,
         text="Bob 的入群验证未生效：机器人无法限制新成员发言，请检查管理员权限。",
     )
+
+
+def test_points_cmd_sends_private_balance_instead_of_group_balance(tmp_path):
+    repo = make_repo(tmp_path)
+    repo.upsert_chat_user(
+        ChatRef(chat_id=-100200, type=Chat.SUPERGROUP, title="积分群"),
+        UserRef(user_id=42, username="alice", is_bot=False, first_name="Alice"),
+    )
+    repo.adjust_points(chat_id=-100200, user_id=42, amount=8, event_type="admin_adjust", operator="test")
+    group_reply = AsyncMock()
+    bot = SimpleNamespace(send_message=AsyncMock(), username="test_bot")
+    update = SimpleNamespace(
+        effective_chat=SimpleNamespace(id=-100200, type=Chat.SUPERGROUP, title="积分群"),
+        effective_user=SimpleNamespace(id=42, username="alice"),
+        message=SimpleNamespace(reply_text=group_reply),
+    )
+    context = SimpleNamespace(
+        application=SimpleNamespace(bot_data={"repo": repo}),
+        bot=bot,
+    )
+
+    asyncio.run(points_cmd(update, context))
+
+    bot.send_message.assert_awaited_once()
+    args = bot.send_message.await_args.kwargs
+    assert args["chat_id"] == 42
+    assert "当前余额：8" in args["text"]
+    group_reply.assert_awaited_once()
+    assert "已私聊发送" in group_reply.await_args.args[0]
+
+
+def test_points_self_callback_only_allows_self(tmp_path):
+    repo = make_repo(tmp_path)
+    repo.upsert_chat_user(
+        ChatRef(chat_id=-100201, type=Chat.SUPERGROUP, title="积分群"),
+        UserRef(user_id=42, username="alice", is_bot=False, first_name="Alice"),
+    )
+    repo.adjust_points(chat_id=-100201, user_id=42, amount=5, event_type="admin_adjust", operator="test")
+    query = SimpleNamespace(
+        data="points:self:-100201:42",
+        from_user=SimpleNamespace(id=43),
+        answer=AsyncMock(),
+    )
+    bot = SimpleNamespace(send_message=AsyncMock(), username="test_bot")
+    update = SimpleNamespace(callback_query=query, effective_chat=SimpleNamespace(id=-100201, title="积分群"))
+    context = SimpleNamespace(application=SimpleNamespace(bot_data={"repo": repo}), bot=bot)
+
+    asyncio.run(on_points_self_callback(update, context))
+
+    query.answer.assert_awaited_once()
+    assert "只能查看你自己的积分" in query.answer.await_args.args[0]
+    assert bot.send_message.await_count == 0
+
+
+def test_rank_cmd_attaches_private_points_button(tmp_path):
+    repo = make_repo(tmp_path)
+    repo.upsert_chat_user(
+        ChatRef(chat_id=-100202, type=Chat.SUPERGROUP, title="积分群"),
+        UserRef(user_id=42, username="alice", is_bot=False, first_name="Alice"),
+    )
+    repo.adjust_points(chat_id=-100202, user_id=42, amount=6, event_type="admin_adjust", operator="test")
+    reply_text = AsyncMock()
+    update = SimpleNamespace(
+        effective_chat=SimpleNamespace(id=-100202, type=Chat.SUPERGROUP, title="积分群"),
+        effective_user=SimpleNamespace(id=42, username="alice"),
+        message=SimpleNamespace(reply_text=reply_text),
+    )
+    context = SimpleNamespace(application=SimpleNamespace(bot_data={"repo": repo}), bot=SimpleNamespace())
+
+    asyncio.run(rank_cmd(update, context))
+
+    reply_text.assert_awaited_once()
+    assert reply_text.await_args.kwargs["reply_markup"] is not None
+
+
+def test_register_bot_commands_sets_private_group_and_admin_scopes():
+    bot = SimpleNamespace(set_my_commands=AsyncMock())
+    app = SimpleNamespace(bot=bot)
+
+    asyncio.run(_register_bot_commands(app))
+
+    assert bot.set_my_commands.await_count == 3
+
+
+def test_pay_cmd_sends_private_notice_to_recipient(tmp_path):
+    repo = make_repo(tmp_path)
+    repo.upsert_chat_user(
+        ChatRef(chat_id=-100203, type=Chat.SUPERGROUP, title="积分群"),
+        UserRef(user_id=42, username="alice", is_bot=False, first_name="Alice"),
+    )
+    repo.upsert_chat_user(
+        ChatRef(chat_id=-100203, type=Chat.SUPERGROUP, title="积分群"),
+        UserRef(user_id=43, username="bob", is_bot=False, first_name="Bob"),
+    )
+    repo.adjust_points(chat_id=-100203, user_id=42, amount=10, event_type="admin_adjust", operator="test")
+    reply_text = AsyncMock()
+    bot = SimpleNamespace(send_message=AsyncMock())
+    update = SimpleNamespace(
+        effective_chat=SimpleNamespace(id=-100203, type=Chat.SUPERGROUP, title="积分群"),
+        effective_user=SimpleNamespace(id=42, username="alice", full_name="Alice"),
+        message=SimpleNamespace(reply_text=reply_text),
+    )
+    context = SimpleNamespace(
+        application=SimpleNamespace(bot_data={"repo": repo}),
+        bot=bot,
+        args=["43", "3"],
+    )
+
+    asyncio.run(pay_cmd(update, context))
+
+    assert bot.send_message.await_count == 1
+    assert bot.send_message.await_args.kwargs["chat_id"] == 43
+    assert "到账积分：3" in bot.send_message.await_args.kwargs["text"]

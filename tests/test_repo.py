@@ -71,3 +71,48 @@ def test_repo_can_update_admin_self_test_setting(tmp_path):
     repo.update_settings(1, {"allow_admin_self_test": True})
     settings = repo.get_settings(1)
     assert settings.allow_admin_self_test is True
+
+
+def test_repo_points_adjust_transfer_and_reward(tmp_path):
+    repo = make_repo(tmp_path / "bot.db")
+    repo.upsert_chat_user(
+        ChatRef(chat_id=1, type="supergroup", title="积分群"),
+        UserRef(user_id=2, username="alice", is_bot=False),
+    )
+    repo.upsert_chat_user(
+        ChatRef(chat_id=1, type="supergroup", title="积分群"),
+        UserRef(user_id=3, username="bob", is_bot=False),
+    )
+    repo.upsert_chat(ChatRef(chat_id=1, type="supergroup", title="积分群"))
+
+    entry = repo.adjust_points(
+        chat_id=1,
+        user_id=2,
+        amount=10,
+        event_type="admin_adjust",
+        operator="test",
+        reason="seed",
+    )
+    assert entry["balance_after"] == 10
+
+    transferred = repo.transfer_points(
+        chat_id=1,
+        from_user_id=2,
+        to_user_id=3,
+        amount=4,
+        operator="test",
+    )
+    assert transferred["from"]["balance_after"] == 6
+    assert transferred["to"]["balance_after"] == 4
+
+    settings = repo.get_settings(1)
+    reward = repo.maybe_reward_message_points(1, 2, "hello world", settings)
+    assert reward["awarded"] is True
+    reward_again = repo.maybe_reward_message_points(1, 2, "hello again", settings)
+    assert reward_again["awarded"] is False
+    assert reward_again["reason"] == "cooldown"
+
+    leaderboard = repo.list_points_leaderboard(1)
+    assert leaderboard[0]["user_id"] == 2
+    ledger = repo.list_points_ledger(1)
+    assert len(ledger) >= 3

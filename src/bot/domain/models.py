@@ -45,6 +45,12 @@ class ChatSettings:
     rate_limit_policy: str = "default"
     language: str = "zh"
     level3_mute_seconds: int = 604800
+    points_enabled: bool = True
+    points_message_reward: int = 1
+    points_message_cooldown_seconds: int = 60
+    points_daily_cap: int = 20
+    points_transfer_enabled: bool = True
+    points_transfer_min_amount: int = 1
 
 
 @dataclass(frozen=True)

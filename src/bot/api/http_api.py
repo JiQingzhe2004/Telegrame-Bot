@@ -143,6 +143,26 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
             "topic_hint": topic_hint,
         }
 
+    def _points_settings_payload(body: dict[str, Any]) -> dict[str, Any]:
+        allowed = {
+            "points_enabled",
+            "points_message_reward",
+            "points_message_cooldown_seconds",
+            "points_daily_cap",
+            "points_transfer_enabled",
+            "points_transfer_min_amount",
+        }
+        payload = {k: body[k] for k in allowed if k in body}
+        if "points_message_reward" in payload:
+            payload["points_message_reward"] = int(payload["points_message_reward"])
+        if "points_message_cooldown_seconds" in payload:
+            payload["points_message_cooldown_seconds"] = int(payload["points_message_cooldown_seconds"])
+        if "points_daily_cap" in payload:
+            payload["points_daily_cap"] = int(payload["points_daily_cap"])
+        if "points_transfer_min_amount" in payload:
+            payload["points_transfer_min_amount"] = int(payload["points_transfer_min_amount"])
+        return payload
+
     @app.get("/healthz")
     async def healthz() -> dict[str, Any]:
         state = services.runtime_manager.runtime_state()
@@ -293,6 +313,78 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
     async def put_settings(chat_id: int, body: dict[str, Any]) -> ApiEnvelope:
         services.repo.update_settings(chat_id, body)
         return ApiEnvelope(ok=True, data=services.repo.get_settings(chat_id).__dict__)
+
+    @app.get("/api/v1/chats/{chat_id}/points/config", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def get_points_config(chat_id: int) -> ApiEnvelope:
+        settings = services.repo.get_settings(chat_id)
+        return ApiEnvelope(
+            ok=True,
+            data={
+                "points_enabled": settings.points_enabled,
+                "points_message_reward": settings.points_message_reward,
+                "points_message_cooldown_seconds": settings.points_message_cooldown_seconds,
+                "points_daily_cap": settings.points_daily_cap,
+                "points_transfer_enabled": settings.points_transfer_enabled,
+                "points_transfer_min_amount": settings.points_transfer_min_amount,
+            },
+        )
+
+    @app.put("/api/v1/chats/{chat_id}/points/config", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def put_points_config(chat_id: int, body: dict[str, Any]) -> ApiEnvelope:
+        payload = _points_settings_payload(body)
+        if not payload:
+            raise HTTPException(status_code=400, detail="missing_points_config_fields")
+        services.repo.update_settings(chat_id, payload)
+        settings = services.repo.get_settings(chat_id)
+        return ApiEnvelope(
+            ok=True,
+            data={
+                "points_enabled": settings.points_enabled,
+                "points_message_reward": settings.points_message_reward,
+                "points_message_cooldown_seconds": settings.points_message_cooldown_seconds,
+                "points_daily_cap": settings.points_daily_cap,
+                "points_transfer_enabled": settings.points_transfer_enabled,
+                "points_transfer_min_amount": settings.points_transfer_min_amount,
+            },
+        )
+
+    @app.get("/api/v1/chats/{chat_id}/points/balance/{user_id}", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def get_points_balance(chat_id: int, user_id: int) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        return ApiEnvelope(ok=True, data=services.repo.get_points_balance(chat_id, user_id))
+
+    @app.get("/api/v1/chats/{chat_id}/points/leaderboard", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def get_points_leaderboard(chat_id: int, limit: int = 20) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        return ApiEnvelope(ok=True, data=services.repo.list_points_leaderboard(chat_id, limit))
+
+    @app.get("/api/v1/chats/{chat_id}/points/ledger", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def get_points_ledger(chat_id: int, limit: int = 100, user_id: int | None = None) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        return ApiEnvelope(ok=True, data=services.repo.list_points_ledger(chat_id, limit=limit, user_id=user_id))
+
+    @app.post("/api/v1/chats/{chat_id}/points/adjust", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def adjust_points(chat_id: int, body: dict[str, Any]) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        try:
+            user_id = int(body.get("user_id", 0))
+            amount = int(body.get("amount", 0))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="invalid_points_adjust") from exc
+        if not user_id:
+            raise HTTPException(status_code=400, detail="missing_user_id")
+        try:
+            result = services.repo.adjust_points(
+                chat_id=chat_id,
+                user_id=user_id,
+                amount=amount,
+                event_type="admin_adjust",
+                operator="admin_api",
+                reason=str(body.get("reason", "")).strip() or "admin_adjust",
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return ApiEnvelope(ok=True, data=result)
 
     @app.get("/api/v1/chats/{chat_id}/verification/questions", dependencies=[Depends(require_active), Depends(auth_admin)])
     async def list_verification_questions(chat_id: int, include_global: bool = True) -> ApiEnvelope:

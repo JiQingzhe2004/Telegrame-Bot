@@ -5,7 +5,17 @@ import logging
 from datetime import timedelta
 from typing import Any
 
-from telegram import Chat, ChatPermissions, InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import (
+    BotCommand,
+    BotCommandScopeAllChatAdministrators,
+    BotCommandScopeAllGroupChats,
+    BotCommandScopeAllPrivateChats,
+    Chat,
+    ChatPermissions,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Update,
+)
 from telegram.error import TelegramError
 from telegram.ext import (
     Application,
@@ -24,11 +34,20 @@ from bot.domain.moderation import Enforcer, ModerationService
 from bot.storage.repo import BotRepository
 from bot.system_config import RuntimeConfig
 from bot.telegram.commands import (
+    POINTS_SELF_CALLBACK_PREFIX,
+    _send_private_points,
     ai_cmd,
     appeal_cmd,
     banword_cmd,
     config_cmd,
     forgive_cmd,
+    pay_cmd,
+    points_entry_markup,
+    points_add_cmd,
+    points_cmd,
+    points_sub_cmd,
+    rank_cmd,
+    start_cmd,
     status_cmd,
     threshold_cmd,
     whitelist_cmd,
@@ -346,6 +365,65 @@ async def on_join_verify_callback(update: Update, context: ContextTypes.DEFAULT_
             await query.answer(f"答案错误，还剩 {remaining} 次机会。", show_alert=True)
 
 
+async def on_points_self_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.data:
+        return
+    payload = query.data.removeprefix(POINTS_SELF_CALLBACK_PREFIX)
+    parts = payload.split(":")
+    if len(parts) != 2:
+        await query.answer("参数错误", show_alert=True)
+        return
+    try:
+        chat_id = int(parts[0])
+        user_id = int(parts[1])
+    except ValueError:
+        await query.answer("参数错误", show_alert=True)
+        return
+    if not query.from_user or query.from_user.id != user_id:
+        await query.answer("只能查看你自己的积分。", show_alert=True)
+        return
+    repo: BotRepository = context.application.bot_data["repo"]
+    success, notice = await _send_private_points(
+        bot=context.bot,
+        repo=repo,
+        chat_id=chat_id,
+        user_id=user_id,
+        username=getattr(context.bot, "username", None),
+        chat_title=update.effective_chat.title if update.effective_chat else None,
+    )
+    await query.answer(notice if not success else "已私聊发送", show_alert=not success)
+
+
+async def _register_bot_commands(app: Application) -> None:
+    bot = app.bot
+    private_commands = [
+        BotCommand("start", "打开使用说明与私聊入口"),
+    ]
+    group_commands = [
+        BotCommand("points", "查看我的积分（私聊返回）"),
+        BotCommand("rank", "查看本群积分排行榜"),
+        BotCommand("pay", "给群成员转账积分 /pay 用户 金额"),
+    ]
+    admin_commands = group_commands + [
+        BotCommand("points_add", "管理员加分 /points_add 用户 金额"),
+        BotCommand("points_sub", "管理员扣分 /points_sub 用户 金额"),
+        BotCommand("status", "查看机器人运行状态摘要"),
+        BotCommand("config", "查看当前群配置详情"),
+        BotCommand("ai", "切换 AI 审核开关 /ai on|off"),
+        BotCommand("threshold", "调整 AI 阈值 /threshold 0-1"),
+        BotCommand("banword", "管理黑名单词 /banword add|del 词"),
+        BotCommand("whitelist", "管理白名单 /whitelist add|del 用户"),
+        BotCommand("forgive", "清空用户违规分 /forgive 用户"),
+    ]
+    try:
+        await bot.set_my_commands(private_commands, scope=BotCommandScopeAllPrivateChats())
+        await bot.set_my_commands(group_commands, scope=BotCommandScopeAllGroupChats())
+        await bot.set_my_commands(admin_commands, scope=BotCommandScopeAllChatAdministrators())
+    except TelegramError as exc:
+        logger.warning("register bot commands failed: %s", exc)
+
+
 async def on_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_chat or not update.effective_message:
         return
@@ -658,6 +736,20 @@ async def on_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             logger.warning("admin self test reply failed chat=%s user=%s err=%s", chat.id, user.id, exc)
         return
 
+    try:
+        repo.maybe_reward_message_points(chat.id, user.id, text, settings)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("reward message points failed chat=%s user=%s err=%s", chat.id, user.id, exc)
+
+    if text.strip().lower() in {"积分", "查积分", "我的积分"}:
+        try:
+            await msg.reply_text(
+                "点击下方按钮私密查看你的积分。",
+                reply_markup=points_entry_markup(chat.id, user.id),
+            )
+        except TelegramError as exc:
+            logger.warning("send points entry button failed chat=%s user=%s err=%s", chat.id, user.id, exc)
+
     perms = await get_permission_snapshot(context.bot, chat.id)
     enforcement = await enforcer.apply(context.bot, message_ref, decision, perms)
     if enforcement.applied_action != "none":
@@ -684,6 +776,7 @@ def build_application(
     app.bot_data["pending_join_verifications"] = {}
 
     app.add_handler(CommandHandler("status", status_cmd))
+    app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("config", config_cmd))
     app.add_handler(CommandHandler("ai", ai_cmd))
     app.add_handler(CommandHandler("threshold", threshold_cmd))
@@ -691,8 +784,15 @@ def build_application(
     app.add_handler(CommandHandler("whitelist", whitelist_cmd))
     app.add_handler(CommandHandler("forgive", forgive_cmd))
     app.add_handler(CommandHandler("appeal", appeal_cmd))
+    app.add_handler(CommandHandler("points", points_cmd))
+    app.add_handler(CommandHandler("rank", rank_cmd))
+    app.add_handler(CommandHandler("pay", pay_cmd))
+    app.add_handler(CommandHandler("points_add", points_add_cmd))
+    app.add_handler(CommandHandler("points_sub", points_sub_cmd))
+    app.add_handler(CallbackQueryHandler(on_points_self_callback, pattern=f"^{POINTS_SELF_CALLBACK_PREFIX}"))
     app.add_handler(CallbackQueryHandler(on_join_verify_callback, pattern=f"^{VERIFY_CALLBACK_PREFIX}"))
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, on_new_chat_members))
     app.add_handler(MessageHandler(filters.ALL & (~filters.COMMAND), on_group_message))
     register_inspection_job(app)
+    app.post_init = _register_bot_commands
     return app

@@ -366,3 +366,45 @@ def test_admin_kick_member_endpoint(tmp_path):
     data = response.json()["data"]
     assert data["applied"] is True
     assert data["permission_ok"] is True
+
+
+def test_points_endpoints(tmp_path):
+    app, repo, _ = make_app_bundle(tmp_path)
+    repo.upsert_chat_user(
+        ChatRef(chat_id=1, type="supergroup", title="积分群"),
+        UserRef(user_id=2, username="alice", is_bot=False, first_name="Alice"),
+    )
+    repo.upsert_chat(ChatRef(chat_id=1, type="supergroup", title="积分群"))
+    client = TestClient(app)
+
+    config = client.get("/api/v1/chats/1/points/config", headers={"X-Admin-Token": "admin-token"})
+    assert config.status_code == 200
+    assert config.json()["data"]["points_enabled"] is True
+
+    updated = client.put(
+        "/api/v1/chats/1/points/config",
+        headers={"X-Admin-Token": "admin-token"},
+        json={"points_message_reward": 3, "points_daily_cap": 12},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["data"]["points_message_reward"] == 3
+
+    adjusted = client.post(
+        "/api/v1/chats/1/points/adjust",
+        headers={"X-Admin-Token": "admin-token"},
+        json={"user_id": 2, "amount": 8, "reason": "seed"},
+    )
+    assert adjusted.status_code == 200
+    assert adjusted.json()["data"]["balance_after"] == 8
+
+    balance = client.get("/api/v1/chats/1/points/balance/2", headers={"X-Admin-Token": "admin-token"})
+    assert balance.status_code == 200
+    assert balance.json()["data"]["balance"] == 8
+
+    leaderboard = client.get("/api/v1/chats/1/points/leaderboard", headers={"X-Admin-Token": "admin-token"})
+    assert leaderboard.status_code == 200
+    assert leaderboard.json()["data"][0]["user_id"] == 2
+
+    ledger = client.get("/api/v1/chats/1/points/ledger", headers={"X-Admin-Token": "admin-token"})
+    assert ledger.status_code == 200
+    assert ledger.json()["data"][0]["event_type"] == "admin_adjust"

@@ -12,6 +12,12 @@ export const queryKeys = {
     ["verificationQuestions", baseUrl, chatId, adminToken] as const,
   whitelist: (baseUrl: string, chatId: string, adminToken: string) => ["whitelist", baseUrl, chatId, adminToken] as const,
   blacklist: (baseUrl: string, chatId: string, adminToken: string) => ["blacklist", baseUrl, chatId, adminToken] as const,
+  pointsConfig: (baseUrl: string, chatId: string, adminToken: string) => ["pointsConfig", baseUrl, chatId, adminToken] as const,
+  pointsBalance: (baseUrl: string, chatId: string, userId: string, adminToken: string) =>
+    ["pointsBalance", baseUrl, chatId, userId, adminToken] as const,
+  pointsLeaderboard: (baseUrl: string, chatId: string, adminToken: string) => ["pointsLeaderboard", baseUrl, chatId, adminToken] as const,
+  pointsLedger: (baseUrl: string, chatId: string, userId: string, adminToken: string) =>
+    ["pointsLedger", baseUrl, chatId, userId, adminToken] as const,
   audits: (baseUrl: string, chatId: string, adminToken: string) => ["audits", baseUrl, chatId, adminToken] as const,
   enforcements: (baseUrl: string, chatId: string, adminToken: string) => ["enforcements", baseUrl, chatId, adminToken] as const,
   appeals: (baseUrl: string, chatId: string, adminToken: string) => ["appeals", baseUrl, chatId, adminToken] as const,
