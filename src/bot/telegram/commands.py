@@ -64,14 +64,6 @@ def points_entry_markup(chat_id: int, user_id: int) -> InlineKeyboardMarkup:
     )
 
 
-def deep_link_markup(bot_username: str | None, payload: str, label: str) -> InlineKeyboardMarkup | None:
-    if not bot_username:
-        return None
-    return InlineKeyboardMarkup(
-        [[InlineKeyboardButton(label, url=f"https://t.me/{bot_username}?start={payload}")]]
-    )
-
-
 async def _send_private_transfer_notice(
     *,
     bot,
@@ -111,9 +103,7 @@ async def _send_private_points(
         await bot.send_message(chat_id=user_id, text=_points_private_message(balance, chat_title))
         return True, "积分明细已私聊发送，请查看机器人私信。"
     except TelegramError:
-        hint = "暂时无法私聊发送积分明细。请先打开机器人私聊并发送 /start，然后回群里再试。"
-        if username:
-            hint += f"\n也可以直接打开：t.me/{username}"
+        hint = "暂时无法私聊发送积分明细。请先手动打开机器人私聊窗口并发送 /start，然后回群里重试。"
         return False, hint
 
 
@@ -285,10 +275,7 @@ async def points_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             reply_markup=points_entry_markup(update.effective_chat.id, update.effective_user.id),
         )
     else:
-        await update.message.reply_text(
-            notice,
-            reply_markup=deep_link_markup(getattr(context.bot, "username", None), f"points_{update.effective_chat.id}", "打开机器人私聊"),
-        )
+        await update.message.reply_text(notice)
 
 
 async def rank_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -491,10 +478,7 @@ async def tasks_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await context.bot.send_message(chat_id=update.effective_user.id, text=content)
         await update.message.reply_text("任务详情已私聊发送。", reply_markup=points_entry_markup(update.effective_chat.id, update.effective_user.id))
     except TelegramError:
-        await update.message.reply_text(
-            "暂时无法私聊发送任务详情，请先私聊机器人并发送 /start。",
-            reply_markup=deep_link_markup(getattr(context.bot, "username", None), f"tasks_{update.effective_chat.id}", "打开机器人私聊"),
-        )
+        await update.message.reply_text("暂时无法私聊发送任务详情，请先手动打开机器人私聊并发送 /start。")
 
 
 async def shop_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -518,10 +502,7 @@ async def shop_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await context.bot.send_message(chat_id=update.effective_user.id, text="\n".join(lines))
         await update.message.reply_text("商品清单已私聊发送。", reply_markup=points_entry_markup(update.effective_chat.id, update.effective_user.id))
     except TelegramError:
-        await update.message.reply_text(
-            "暂时无法私聊发送商品清单，请先私聊机器人并发送 /start。",
-            reply_markup=deep_link_markup(getattr(context.bot, "username", None), f"shop_{update.effective_chat.id}", "打开机器人私聊"),
-        )
+        await update.message.reply_text("暂时无法私聊发送商品清单，请先手动打开机器人私聊并发送 /start。")
 
 
 async def redeem_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

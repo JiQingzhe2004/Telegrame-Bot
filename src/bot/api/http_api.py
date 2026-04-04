@@ -303,6 +303,16 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
         await services.runtime_manager.reload(conf)
         return ApiEnvelope(ok=True, data={"runtime_config": conf.redacted(), "state": services.runtime_manager.runtime_state()})
 
+    @app.post("/api/v1/runtime/telegram/commands/sync", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def sync_telegram_commands() -> ApiEnvelope:
+        try:
+            await services.runtime_manager.sync_bot_commands()
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail="runtime_not_active") from exc
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=502, detail=f"telegram_command_sync_failed: {exc}") from exc
+        return ApiEnvelope(ok=True, data={"synced": True})
+
     @app.get("/api/v1/chats", dependencies=[Depends(require_active), Depends(auth_admin)])
     async def list_chats(limit: int = 200) -> ApiEnvelope:
         return ApiEnvelope(ok=True, data=services.repo.list_chats(limit))

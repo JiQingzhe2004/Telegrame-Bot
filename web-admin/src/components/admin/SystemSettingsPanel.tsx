@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { RefreshCw, Save } from "lucide-react";
+import { RefreshCw, Save, Send } from "lucide-react";
 import type { KnownChat } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,8 @@ type Props = {
   knownChats: KnownChat[];
   onReloadChats: () => Promise<void>;
   onSaveConnection: (values: { baseUrl: string; chatId: string }) => void;
+  onSyncTelegramCommands: () => Promise<void>;
+  syncingTelegramCommands: boolean;
   runtimeState: "setup" | "active";
   lastSyncText: string;
 };
@@ -31,6 +33,8 @@ export function SystemSettingsPanel({
   knownChats,
   onReloadChats,
   onSaveConnection,
+  onSyncTelegramCommands,
+  syncingTelegramCommands,
   runtimeState,
   lastSyncText,
 }: Props) {
@@ -82,6 +86,14 @@ export function SystemSettingsPanel({
             <RefreshCw className="mr-2 h-4 w-4" />
             自动获取 Chat
           </Button>
+          <Button
+            variant="outline"
+            onClick={() => void onSyncTelegramCommands()}
+            disabled={syncingTelegramCommands || runtimeState !== "active"}
+          >
+            <Send className="mr-2 h-4 w-4" />
+            {syncingTelegramCommands ? "同步中..." : "同步 Telegram 命令"}
+          </Button>
           <Button onClick={() => onSaveConnection({ baseUrl: draftBaseUrl, chatId: draftChatId })}>
             <Save className="mr-2 h-4 w-4" />
             保存连接配置
@@ -94,6 +106,9 @@ export function SystemSettingsPanel({
           </Badge>
           <span className="text-sm text-muted-foreground">最近同步: {lastSyncText}</span>
         </div>
+        <p className="text-xs text-muted-foreground">
+          群聊输入框里的斜杠命令入口由机器人后端注册。命令列表没刷新时，可在这里手动同步一次。
+        </p>
       </CardContent>
     </Card>
   );

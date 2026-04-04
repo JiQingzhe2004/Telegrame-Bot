@@ -92,6 +92,7 @@ export function AdminConsolePage({
   const [lastSyncAt, setLastSyncAt] = useState<Date | null>(null);
   const [permissionChecking, setPermissionChecking] = useState(false);
   const [savingRuntimeConfig, setSavingRuntimeConfig] = useState(false);
+  const [syncingTelegramCommands, setSyncingTelegramCommands] = useState(false);
   const [generatingVerificationQuestions, setGeneratingVerificationQuestions] = useState(false);
   const [queriedPointsUserId, setQueriedPointsUserId] = useState("");
 
@@ -550,6 +551,20 @@ export function AdminConsolePage({
     toast.success("群列表已刷新");
   };
 
+  const syncTelegramCommands = async () => {
+    setSyncingTelegramCommands(true);
+    try {
+      await api.syncTelegramCommands(adminToken);
+      toast.success("Telegram 命令菜单已同步", {
+        description: "现在回到群聊输入框输入 /，就会刷新快捷命令入口。",
+      });
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setSyncingTelegramCommands(false);
+    }
+  };
+
   const actions: AdminActions = {
     refreshAll: refreshVisibleData,
     updateSettings: async (payload) => {
@@ -809,6 +824,8 @@ export function AdminConsolePage({
         chatId={chatId}
         knownChats={bundle.knownChats}
         onReloadChats={reloadChats}
+        onSyncTelegramCommands={syncTelegramCommands}
+        syncingTelegramCommands={syncingTelegramCommands}
         onSaveConnection={(values) => {
           onBaseUrlChange(values.baseUrl);
           setChatId(values.chatId);

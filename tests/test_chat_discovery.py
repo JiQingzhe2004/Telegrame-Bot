@@ -500,5 +500,4 @@ def test_points_cmd_group_failure_includes_private_link_button(tmp_path):
     asyncio.run(points_cmd(update, context))
 
     reply_text.assert_awaited_once()
-    markup = reply_text.await_args.kwargs["reply_markup"]
-    assert markup.inline_keyboard[0][0].url.endswith("start=points_-100204")
+    assert "请先手动打开机器人私聊窗口并发送 /start" in reply_text.await_args.args[0]

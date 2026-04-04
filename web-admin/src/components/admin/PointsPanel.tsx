@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, Coins, Gift, Plus, Search, ShoppingBag, Target } from "lucide-react";
+import { CheckCircle2, Coins, Gift, Minus, Plus, Search, ShoppingBag, Target } from "lucide-react";
 import type {
   ChatPointsConfig,
   PointsBalance,
@@ -427,15 +427,72 @@ export function PointsPanel({
                         />
                       </TableCell>
                       <TableCell>
-                        <Input
-                          type="number"
-                          value={item.stock ?? ""}
-                          onChange={(e) =>
-                            setShopItems((prev) =>
-                              prev.map((entry, i) => (i === index ? { ...entry, stock: e.target.value ? Number(e.target.value) : null } : entry)),
-                            )
-                          }
-                        />
+                        <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            disabled={item.stock === null}
+                            onClick={() =>
+                              setShopItems((prev) =>
+                                prev.map((entry, i) =>
+                                  i === index
+                                    ? { ...entry, stock: Math.max((entry.stock ?? 0) - 1, 0) }
+                                    : entry,
+                                ),
+                              )
+                            }
+                          >
+                            <Minus className="h-4 w-4" />
+                          </Button>
+                          <Input
+                            type="number"
+                            value={item.stock ?? ""}
+                            placeholder={item.stock === null ? "无限" : "库存"}
+                            onChange={(e) =>
+                              setShopItems((prev) =>
+                                prev.map((entry, i) =>
+                                  i === index
+                                    ? { ...entry, stock: e.target.value === "" ? null : Math.max(Number(e.target.value), 0) }
+                                    : entry,
+                                ),
+                              )
+                            }
+                            className="w-24 text-center"
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            disabled={item.stock === null}
+                            onClick={() =>
+                              setShopItems((prev) =>
+                                prev.map((entry, i) =>
+                                  i === index
+                                    ? { ...entry, stock: (entry.stock ?? 0) + 1 }
+                                    : entry,
+                                ),
+                              )
+                            }
+                          >
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        <div className="mt-2 flex items-center gap-2">
+                          <Switch
+                            checked={item.stock === null}
+                            onCheckedChange={(checked) =>
+                              setShopItems((prev) =>
+                                prev.map((entry, i) =>
+                                  i === index
+                                    ? { ...entry, stock: checked ? null : 0 }
+                                    : entry,
+                                ),
+                              )
+                            }
+                          />
+                          <span className="text-xs text-muted-foreground">无限库存</span>
+                        </div>
                       </TableCell>
                       <TableCell>
                         <Switch

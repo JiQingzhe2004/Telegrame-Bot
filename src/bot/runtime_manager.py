@@ -66,6 +66,13 @@ class RuntimeManager:
             await self._stop_current()
             self._state = "setup"
 
+    async def sync_bot_commands(self) -> None:
+        async with self._lock:
+            if not self._tg_app:
+                raise RuntimeError("runtime not active")
+            if callable(getattr(self._tg_app, "post_init", None)):
+                await self._tg_app.post_init(self._tg_app)
+
     async def reload(self, conf: RuntimeConfig | None = None) -> None:
         async with self._lock:
             next_conf = conf or self.config_service.get_runtime_config()
@@ -100,6 +107,8 @@ class RuntimeManager:
         )
 
         await tg_app.initialize()
+        if callable(getattr(tg_app, "post_init", None)):
+            await tg_app.post_init(tg_app)
         await tg_app.start()
         if conf.run_mode == "webhook":
             if conf.webhook_public_url:

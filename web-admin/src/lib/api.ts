@@ -499,6 +499,13 @@ export class ApiClient {
     });
   }
 
+  syncTelegramCommands(adminToken: string) {
+    return this.request<{ synced: boolean }>("/api/v1/runtime/telegram/commands/sync", {
+      method: "POST",
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
   listChats(adminToken: string, limit = 200) {
     return this.request<KnownChat[]>(`/api/v1/chats?limit=${limit}`, {
       headers: this.adminHeaders(adminToken),

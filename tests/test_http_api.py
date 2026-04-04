@@ -75,6 +75,7 @@ class FakeRuntimeManager:
                 get_chat_member=AsyncMock(return_value=SimpleNamespace(status="member", until_date=None))
             )
         )
+        self.sync_bot_commands = AsyncMock()
 
     def is_active(self) -> bool:
         return self.active
@@ -432,3 +433,14 @@ def test_points_redemption_status_endpoint(tmp_path):
 
     assert response.status_code == 200
     assert response.json()["data"]["status"] == "active"
+
+
+def test_sync_telegram_commands_endpoint(tmp_path):
+    app, _, runtime_manager = make_app_bundle(tmp_path)
+    client = TestClient(app)
+
+    response = client.post("/api/v1/runtime/telegram/commands/sync", headers={"X-Admin-Token": "admin-token"})
+
+    assert response.status_code == 200
+    assert response.json()["data"]["synced"] is True
+    runtime_manager.sync_bot_commands.assert_awaited_once()
