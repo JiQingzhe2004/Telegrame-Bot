@@ -1,6 +1,17 @@
 import { useMemo, useState } from "react";
-import { AutoComplete } from "antd";
+import { Check, ChevronsUpDown } from "lucide-react";
 import type { ChatMemberBrief } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 
 type Props = {
   members: ChatMemberBrief[];
@@ -8,7 +19,6 @@ type Props = {
   onChange: (value: string) => void;
   placeholder?: string;
   maxSeedOptions?: number;
-  batchSize?: number;
 };
 
 export function UserLazySelect({
@@ -17,13 +27,10 @@ export function UserLazySelect({
   onChange,
   placeholder = "支持搜索用户名/ID，也可手输",
   maxSeedOptions = 200,
-  batchSize = 50,
 }: Props) {
   const [open, setOpen] = useState(false);
-  const [searchText, setSearchText] = useState("");
-  const [visibleCount, setVisibleCount] = useState(batchSize);
 
-  const allOptions = useMemo(
+  const options = useMemo(
     () =>
       members.slice(0, maxSeedOptions).map((m) => {
         const displayName = m.username || `${m.first_name ?? ""} ${m.last_name ?? ""}`.trim() || "未知用户";
@@ -35,49 +42,50 @@ export function UserLazySelect({
     [members, maxSeedOptions],
   );
 
-  const filteredOptions = useMemo(() => {
-    const keyword = searchText.trim().toLowerCase();
-    if (!keyword) return allOptions;
-    return allOptions.filter((item) => item.label.toLowerCase().includes(keyword));
-  }, [allOptions, searchText]);
-
-  const visibleOptions = useMemo(() => filteredOptions.slice(0, visibleCount), [filteredOptions, visibleCount]);
-
-  const resetWindow = () => {
-    setVisibleCount(batchSize);
-  };
-
-  const loadMore = () => {
-    if (visibleCount >= filteredOptions.length) return;
-    setVisibleCount((prev) => Math.min(prev + batchSize, filteredOptions.length));
-  };
-
   return (
-    <AutoComplete
-      options={visibleOptions}
-      value={value}
-      style={{ width: "100%" }}
-      placeholder={placeholder}
-      open={open}
-      filterOption={false}
-      onChange={onChange}
-      onFocus={() => {
-        setOpen(true);
-        resetWindow();
-      }}
-      onBlur={() => setOpen(false)}
-      onSelect={() => setOpen(false)}
-      onSearch={(next) => {
-        setSearchText(next);
-        setOpen(true);
-        resetWindow();
-      }}
-      onPopupScroll={(e) => {
-        const target = e.target as HTMLDivElement;
-        const nearBottom = target.scrollTop + target.clientHeight >= target.scrollHeight - 24;
-        if (nearBottom) loadMore();
-      }}
-      notFoundContent={searchText ? "未匹配到用户，可直接输入 ID" : "暂无可选用户"}
-    />
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="w-full justify-between font-normal text-muted-foreground"
+        >
+          <span className="truncate">
+            {value
+              ? options.find((item) => item.value === value)?.label ?? value
+              : placeholder}
+          </span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[360px] p-0" align="start">
+        <Command shouldFilter>
+          <CommandInput
+            placeholder={placeholder}
+            value={value}
+            onValueChange={onChange}
+          />
+          <CommandList>
+            <CommandEmpty>没有匹配的成员，继续输入可手动指定用户 ID。</CommandEmpty>
+            <CommandGroup heading="成员候选">
+              {options.map((item) => (
+                <CommandItem
+                  key={item.label}
+                  value={`${item.value} ${item.label}`}
+                  onSelect={() => {
+                    onChange(item.value);
+                    setOpen(false);
+                  }}
+                >
+                  <Check className={cn("mr-2 h-4 w-4", value === item.value ? "opacity-100" : "opacity-0")} />
+                  <span className="truncate">{item.label}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
   );
 }

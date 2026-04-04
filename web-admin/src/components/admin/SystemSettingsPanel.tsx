@@ -1,6 +1,19 @@
 import { useEffect, useState } from "react";
-import { Button, Card, Col, Input, Row, Select, Space, Tag, Typography } from "antd";
+import { RefreshCw, Save } from "lucide-react";
 import type { KnownChat } from "@/lib/api";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 type Props = {
   baseUrl: string;
@@ -28,47 +41,60 @@ export function SystemSettingsPanel({
   useEffect(() => setDraftChatId(chatId), [chatId]);
 
   return (
-    <Card title="系统设置">
-      <Space direction="vertical" size={16} style={{ width: "100%" }}>
-        <Row gutter={12}>
-          <Col xs={24} md={12}>
-            <Typography.Text>API 地址</Typography.Text>
+    <Card className="admin-surface-card">
+      <CardHeader>
+        <CardTitle>系统设置</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-6">
+        <div className="grid gap-5 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label>API 地址</Label>
             <Input value={draftBaseUrl} onChange={(e) => setDraftBaseUrl(e.target.value)} />
-            <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+            <p className="text-xs text-muted-foreground">
               管理令牌改为登录页输入，这里只保留服务地址和当前群设置。
-            </Typography.Paragraph>
-          </Col>
-        </Row>
-        <Row gutter={12}>
-          <Col xs={24} md={12}>
-            <Typography.Text>当前 Chat</Typography.Text>
-            <Select
-              value={draftChatId || undefined}
-              style={{ width: "100%" }}
-              showSearch
-              optionFilterProp="label"
-              options={knownChats.map((item) => ({
-                value: String(item.chat_id),
-                label: `${item.title ?? "未命名群"} (${item.chat_id})`,
-              }))}
-              onChange={(value) => setDraftChatId(value)}
-            />
-            <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label>当前 Chat</Label>
+            <Select value={draftChatId || undefined} onValueChange={setDraftChatId}>
+              <SelectTrigger>
+                <SelectValue placeholder="请选择群聊" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {knownChats.map((item) => (
+                    <SelectItem key={item.chat_id} value={String(item.chat_id)}>
+                      {item.title ?? "未命名群"} ({item.chat_id})
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
               自动获取只会列出机器人已接收到事件的群。首次使用时，先把机器人拉进群；若还没出现，在群里发一条消息或命令后再刷新。
-            </Typography.Paragraph>
-          </Col>
-          <Col xs={24} md={12} style={{ display: "flex", alignItems: "end" }}>
-            <Space>
-              <Button onClick={() => void onReloadChats()}>自动获取 Chat</Button>
-              <Button type="primary" onClick={() => onSaveConnection({ baseUrl: draftBaseUrl, chatId: draftChatId })}>
-                保存连接配置
-              </Button>
-              <Tag color={runtimeState === "active" ? "success" : "default"}>{runtimeState.toUpperCase()}</Tag>
-              <Typography.Text type="secondary">最近同步: {lastSyncText}</Typography.Text>
-            </Space>
-          </Col>
-        </Row>
-      </Space>
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <Button variant="outline" onClick={() => void onReloadChats()}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            自动获取 Chat
+          </Button>
+          <Button onClick={() => onSaveConnection({ baseUrl: draftBaseUrl, chatId: draftChatId })}>
+            <Save className="mr-2 h-4 w-4" />
+            保存连接配置
+          </Button>
+          <Badge
+            variant={runtimeState === "active" ? "outline" : "secondary"}
+            className={runtimeState === "active" ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-500/10 dark:text-emerald-200" : ""}
+          >
+            {runtimeState.toUpperCase()}
+          </Badge>
+          <span className="text-sm text-muted-foreground">最近同步: {lastSyncText}</span>
+        </div>
+      </CardContent>
     </Card>
   );
 }

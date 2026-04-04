@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Button, Card, Flex, Input, Space, Spin, Tag, Typography } from "antd";
+import { AlertCircle, RefreshCw, Server, WifiOff } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { ApiClient } from "@/lib/api";
 import { queryKeys } from "@/lib/queryKeys";
@@ -8,6 +8,22 @@ import { getErrorMessage, readStorage, writeStorage } from "@/lib/helpers";
 import { SetupWizardPage } from "@/pages/SetupWizardPage";
 import { AdminConsolePage } from "@/pages/AdminConsolePage";
 import { AdminLoginPage } from "@/pages/AdminLoginPage";
+
+// shadcn UI
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Label } from "@/components/ui/label";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 
 type ConnectionErrorPageProps = {
   baseUrl: string;
@@ -19,7 +35,6 @@ type ConnectionErrorPageProps = {
 function ConnectionErrorPage({ baseUrl, frontendVersion, errorMessage, onRetry }: ConnectionErrorPageProps) {
   const [draftBaseUrl, setDraftBaseUrl] = useState(baseUrl);
   const hint = (() => {
-    // ApiClient 会抛出带 hint 的 ApiError，这里尽量展示出来帮助用户自救。
     const maybe = runtimeErrorFromMessage(errorMessage);
     return maybe?.hint ?? "";
   })();
@@ -29,46 +44,75 @@ function ConnectionErrorPage({ baseUrl, frontendVersion, errorMessage, onRetry }
   }, [baseUrl]);
 
   return (
-    <div className="auth-page">
-      <Card className="auth-shell-card" style={{ maxWidth: 520, margin: "48px auto" }}>
-        <Space direction="vertical" size={18} style={{ width: "100%" }}>
-          <Space size={10} wrap>
-            <Tag color="blue">前端 v{frontendVersion}</Tag>
-            <Tag>后端未连接</Tag>
-          </Space>
-          <div>
-            <Typography.Title level={3} style={{ marginBottom: 8 }}>
+    <div className="auth-page flex items-center justify-center min-h-screen p-4">
+      <div className="fixed right-6 top-6 z-50">
+        <ThemeToggle className="bg-background/80 backdrop-blur" />
+      </div>
+      <Card className="w-full max-w-[520px] shadow-2xl border-none">
+        <CardHeader className="space-y-4">
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-50 dark:bg-cyan-500/15 dark:text-cyan-200 dark:hover:bg-cyan-500/20">
+              前端 v{frontendVersion}
+            </Badge>
+            <Badge variant="destructive" className="animate-pulse">
+              后端未连接
+            </Badge>
+          </div>
+          <div className="space-y-1">
+            <CardTitle className="text-2xl font-bold tracking-tight flex items-center gap-2">
+              <WifiOff className="h-6 w-6 text-destructive" />
               无法连接后端服务
-            </Typography.Title>
-            <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-              检查后端是否已启动，再确认 API 地址是否正确。
-            </Typography.Paragraph>
+            </CardTitle>
+            <CardDescription>
+              请检查后端服务是否已启动，并确认 API 地址配置是否正确。
+            </CardDescription>
           </div>
-          <Alert type="error" showIcon message={errorMessage} />
-          {hint ? (
-            <Alert
-              type="warning"
-              showIcon
-              message="排查提示"
-              description={<Typography.Paragraph style={{ whiteSpace: "pre-line", marginBottom: 0 }}>{hint}</Typography.Paragraph>}
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>连接异常</AlertTitle>
+            <AlertDescription>{errorMessage}</AlertDescription>
+          </Alert>
+
+          {hint && (
+            <Alert className="bg-amber-50 border-amber-200 text-amber-900 dark:bg-amber-500/10 dark:border-amber-400/20 dark:text-amber-100">
+              <AlertTitle className="text-amber-800 font-bold dark:text-amber-200">排查提示</AlertTitle>
+              <AlertDescription className="whitespace-pre-line text-amber-700 dark:text-amber-200/90">
+                {hint}
+              </AlertDescription>
+            </Alert>
+          )}
+
+          <div className="space-y-2">
+            <Label htmlFor="api-url" className="text-sm font-semibold flex items-center gap-2">
+              <Server className="h-4 w-4 text-muted-foreground" />
+              API 地址
+            </Label>
+            <Input
+              id="api-url"
+              value={draftBaseUrl}
+              onChange={(e) => setDraftBaseUrl(e.target.value)}
+              placeholder="http://127.0.0.1:10010"
+              className="h-11"
             />
-          ) : null}
-          <div>
-            <Typography.Text strong>API 地址</Typography.Text>
-            <Input value={draftBaseUrl} onChange={(e) => setDraftBaseUrl(e.target.value)} placeholder="http://127.0.0.1:10010" />
           </div>
-          <Button type="primary" size="large" onClick={() => onRetry(draftBaseUrl.trim() || baseUrl)}>
-            重新连接
+        </CardContent>
+        <CardFooter>
+          <Button 
+            className="w-full h-11 text-base font-bold flex items-center gap-2"
+            onClick={() => onRetry(draftBaseUrl.trim() || baseUrl)}
+          >
+            <RefreshCw className="h-4 w-4" />
+            重新尝试连接
           </Button>
-        </Space>
+        </CardFooter>
       </Card>
     </div>
   );
 }
 
 function runtimeErrorFromMessage(_message: string): { hint?: string } | null {
-  // 这里没有直接拿到 error 对象，只能从 window 上兜底读取最近一次错误。
-  // 具体错误对象由 react-query 持有；我们在 App 里会把它挂到 window.__BOT_LAST_ERROR 供页面使用。
   const anyWin = window as unknown as { __BOT_LAST_ERROR?: unknown };
   const err = anyWin.__BOT_LAST_ERROR;
   if (!err || typeof err !== "object") return null;
@@ -143,9 +187,10 @@ export function App() {
 
   if (runtimeStateQuery.isLoading) {
     return (
-      <Flex align="center" justify="center" style={{ height: "100vh" }}>
-        <Spin size="large" tip="正在连接服务..." />
-      </Flex>
+      <div className="flex flex-col items-center justify-center h-screen gap-4">
+        <RefreshCw className="h-10 w-10 text-primary animate-spin" />
+        <span className="text-sm font-medium text-muted-foreground">正在连接服务...</span>
+      </div>
     );
   }
 
@@ -195,9 +240,10 @@ export function App() {
 
   if (adminSessionQuery.isLoading || adminSessionQuery.isFetching || !adminSessionQuery.data) {
     return (
-      <Flex align="center" justify="center" style={{ height: "100vh" }}>
-        <Spin size="large" tip="正在验证管理令牌..." />
-      </Flex>
+      <div className="flex flex-col items-center justify-center h-screen gap-4">
+        <RefreshCw className="h-10 w-10 text-primary animate-spin" />
+        <span className="text-sm font-medium text-muted-foreground">正在验证管理令牌...</span>
+      </div>
     );
   }
 

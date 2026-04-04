@@ -1,6 +1,7 @@
-import { Card, Empty, List, Tag, Typography } from "antd";
 import type { AdminDataBundle } from "@/components/admin/types";
 import { formatTime } from "@/lib/helpers";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 type Props = {
   data: AdminDataBundle;
@@ -8,29 +9,30 @@ type Props = {
 
 export function AppealsPanel({ data }: Props) {
   return (
-    <Card title="申诉与回滚">
-      <List
-        dataSource={data.appeals}
-        locale={{ emptyText: <Empty description="暂无申诉记录" /> }}
-        renderItem={(item) => (
-          <List.Item>
-            <List.Item.Meta
-              title={
-                <>
-                  <Tag>#{item.id}</Tag>
-                  <Typography.Text type="secondary">user: {item.user_id}</Typography.Text>
-                </>
-              }
-              description={
-                <>
-                  <Typography.Paragraph style={{ marginBottom: 4 }}>{item.message}</Typography.Paragraph>
-                  <Typography.Text type="secondary">{formatTime(item.created_at)}</Typography.Text>
-                </>
-              }
-            />
-          </List.Item>
+    <Card className="admin-surface-card">
+      <CardHeader>
+        <CardTitle>申诉与回滚</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {data.appeals.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border bg-muted/20 px-6 py-10 text-center text-sm text-muted-foreground">
+            暂无申诉记录
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {data.appeals.map((item) => (
+              <div key={item.id} className="rounded-xl border bg-background/90 p-4 shadow-sm">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <Badge variant="outline">#{item.id}</Badge>
+                  <span className="text-sm text-muted-foreground">user: {item.user_id}</span>
+                </div>
+                <p className="text-sm leading-6">{item.message}</p>
+                <p className="mt-2 text-xs text-muted-foreground">{formatTime(item.created_at)}</p>
+              </div>
+            ))}
+          </div>
         )}
-      />
+      </CardContent>
     </Card>
   );
 }

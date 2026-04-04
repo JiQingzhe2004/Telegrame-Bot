@@ -1,7 +1,37 @@
 import { useMemo, useState } from "react";
-import { Alert, App as AntApp, Button, Card, Col, Form, Input, InputNumber, Popconfirm, Row, Select, Space, Table, Tag, Typography } from "antd";
+import { Pencil, Plus, RotateCcw, Sparkles, Trash2 } from "lucide-react";
 import type { VerificationQuestion } from "@/lib/api";
 import { formatTime } from "@/lib/helpers";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 type QuestionPayload = {
   scope: "chat" | "global";
@@ -27,9 +57,9 @@ type FormValues = {
   question: string;
   option_0: string;
   option_1: string;
-  option_2?: string;
-  option_3?: string;
-  answer_original_index?: number;
+  option_2: string;
+  option_3: string;
+  answer_original_index: string;
 };
 
 const OPTION_FIELDS = ["option_0", "option_1", "option_2", "option_3"] as const;
@@ -42,7 +72,7 @@ function toFormValues(item: VerificationQuestion): FormValues {
     option_1: item.options[1] ?? "",
     option_2: item.options[2] ?? "",
     option_3: item.options[3] ?? "",
-    answer_original_index: item.answer_index,
+    answer_original_index: String(item.answer_index),
   };
 }
 
@@ -57,274 +87,338 @@ export function VerificationQuestionPanel({
   onDelete,
   onGenerate,
 }: Props) {
-  const { message } = AntApp.useApp();
-  const [form] = Form.useForm<FormValues>();
-  const [generateForm] = Form.useForm<{ scope: "chat" | "global"; count: number; topic_hint?: string }>();
   const [editingId, setEditingId] = useState<number | null>(null);
-  const watched = Form.useWatch([], form) as Partial<FormValues> | undefined;
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [formState, setFormState] = useState<FormValues>({
+    scope: "chat",
+    question: "",
+    option_0: "",
+    option_1: "",
+    option_2: "",
+    option_3: "",
+    answer_original_index: "",
+  });
+  const [generateState, setGenerateState] = useState({
+    scope: "chat" as "chat" | "global",
+    count: "3",
+    topic_hint: "",
+  });
 
   const filledOptions = useMemo(
     () =>
       OPTION_FIELDS.map((field, index) => ({
         originalIndex: index,
-        text: String(watched?.[field] ?? "").trim(),
+        text: String(formState[field] ?? "").trim(),
       })).filter((item) => item.text),
-    [watched],
+    [formState],
   );
 
   const answerChoices = filledOptions.map((item, index) => ({
     label: `${String.fromCharCode(65 + index)}. ${item.text}`,
-    value: item.originalIndex,
+    value: String(item.originalIndex),
   }));
 
   const resetForm = () => {
     setEditingId(null);
-    form.setFieldsValue({
+    setFormState({
       scope: "chat",
       question: "",
       option_0: "",
       option_1: "",
       option_2: "",
       option_3: "",
-      answer_original_index: undefined,
+      answer_original_index: "",
     });
   };
 
-  const buildPayload = async (): Promise<QuestionPayload> => {
-    const values = await form.validateFields();
+  const buildPayload = (): QuestionPayload => {
     const optionPairs = OPTION_FIELDS.map((field, originalIndex) => ({
       originalIndex,
-      text: String(values[field] ?? "").trim(),
+      text: String(formState[field] ?? "").trim(),
     })).filter((item) => item.text);
+
+    if (!formState.question.trim()) {
+      throw new Error("请填写题目");
+    }
     if (optionPairs.length < 2 || optionPairs.length > 4) {
       throw new Error("请填写 2 到 4 个选项");
     }
-    const answerOriginalIndex = Number(values.answer_original_index);
+
+    const answerOriginalIndex = Number(formState.answer_original_index);
     const answerIndex = optionPairs.findIndex((item) => item.originalIndex === answerOriginalIndex);
     if (answerIndex < 0) {
       throw new Error("请选择正确答案");
     }
+
     return {
-      scope: values.scope,
-      question: values.question.trim(),
+      scope: formState.scope,
+      question: formState.question.trim(),
       options: optionPairs.map((item) => item.text),
       answer_index: answerIndex,
     };
   };
 
   const handleSubmit = async () => {
-    try {
-      const payload = await buildPayload();
-      if (editingId === null) {
-        await onCreate(payload);
-      } else {
-        await onUpdate(editingId, payload);
-      }
-      resetForm();
-    } catch (error) {
-      if (error instanceof Error) {
-        message.error(error.message);
-      }
+    const payload = buildPayload();
+    if (editingId === null) {
+      await onCreate(payload);
+    } else {
+      await onUpdate(editingId, payload);
     }
+    resetForm();
   };
 
-  const columns = [
-    {
-      title: "范围",
-      dataIndex: "scope",
-      width: 90,
-      render: (_: unknown, row: VerificationQuestion) =>
-        row.scope === "global" ? <Tag color="gold">全局</Tag> : <Tag color="blue">当前群</Tag>,
-    },
-    {
-      title: "题目",
-      dataIndex: "question",
-      ellipsis: true,
-    },
-    {
-      title: "选项",
-      dataIndex: "options",
-      render: (_: unknown, row: VerificationQuestion) => row.options.join(" / "),
-    },
-    {
-      title: "正确答案",
-      dataIndex: "answer_text",
-      width: 220,
-      render: (_: unknown, row: VerificationQuestion) => row.answer_text ?? "-",
-    },
-    {
-      title: "创建时间",
-      dataIndex: "created_at",
-      width: 180,
-      render: (_: unknown, row: VerificationQuestion) => formatTime(row.created_at),
-    },
-    {
-      title: "操作",
-      key: "actions",
-      width: 150,
-      render: (_: unknown, row: VerificationQuestion) => (
-        <Space>
-          <Button
-            size="small"
-            onClick={() => {
-              setEditingId(row.id);
-              form.setFieldsValue(toFormValues(row));
-            }}
-          >
-            编辑
-          </Button>
-          <Popconfirm title="确认删除这道验证题？" onConfirm={() => onDelete(row.id)}>
-            <Button size="small" danger>
-              删除
-            </Button>
-          </Popconfirm>
-        </Space>
-      ),
-    },
-  ];
-
   return (
-    <Card
-      size="small"
-      title="入群验证题库"
-      extra={
-        <Space>
-          {chatId ? <Tag color="blue">Chat {chatId}</Tag> : null}
-          <Tag color={questionType === "quiz" ? "processing" : "default"}>{questionType === "quiz" ? "当前使用题库模式" : "当前使用按钮模式"}</Tag>
-        </Space>
-      }
-    >
-      <Space direction="vertical" size={16} style={{ width: "100%" }}>
-        <Alert
-          type="info"
-          showIcon
-          message="切到 quiz 后，会从当前群题库随机出题；当前群没有题时，会回退到全局题库；全都没有时再降级成按钮验证。"
-        />
-        {questionType === "quiz" && questions.length === 0 ? (
-          <Alert type="warning" showIcon message="当前题库为空，quiz 模式下会自动降级成按钮验证。" />
-        ) : null}
-        <Card size="small" title="AI 生成题库">
-          <Form
-            form={generateForm}
-            layout="vertical"
-            initialValues={{
-              scope: "chat",
-              count: 3,
-              topic_hint: "",
-            }}
-          >
-            <Row gutter={12}>
-              <Col xs={24} md={8}>
-                <Form.Item label="生成范围" name="scope" rules={[{ required: true, message: "必选" }]}>
-                  <Select
-                    options={[
-                      { label: "当前群", value: "chat" },
-                      { label: "全局题库", value: "global" },
-                    ]}
-                  />
-                </Form.Item>
-              </Col>
-              <Col xs={24} md={8}>
-                <Form.Item label="生成数量" name="count" rules={[{ required: true, message: "必填" }]}>
-                  <InputNumber min={1} max={5} style={{ width: "100%" }} />
-                </Form.Item>
-              </Col>
-              <Col xs={24} md={8}>
-                <Form.Item label="话题提示（可空）" name="topic_hint">
-                  <Input placeholder="例如：群规、技术交流、礼貌发言" />
-                </Form.Item>
-              </Col>
-              <Col xs={24}>
-                <Button
-                  type="primary"
-                  loading={generating}
-                  disabled={!chatId}
-                  onClick={async () => {
-                    try {
-                      const values = await generateForm.validateFields();
-                      await onGenerate({
-                        scope: values.scope,
-                        count: Number(values.count),
-                        topic_hint: values.topic_hint?.trim() || undefined,
-                      });
-                    } catch (error) {
-                      if (error instanceof Error) {
-                        message.error(error.message);
-                      }
-                    }
-                  }}
-                >
-                  使用当前 AI 配置生成题目
-                </Button>
-              </Col>
-            </Row>
-          </Form>
-        </Card>
-        <Form
-          form={form}
-          layout="vertical"
-          initialValues={{
-            scope: "chat",
-            option_0: "",
-            option_1: "",
-            option_2: "",
-            option_3: "",
-          }}
-        >
-          <Row gutter={12}>
-            <Col xs={24} md={8}>
-              <Form.Item label="题目范围" name="scope" rules={[{ required: true, message: "必选" }]}>
+    <>
+      <Card className="admin-surface-card">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <CardTitle>入群验证题库</CardTitle>
+            <p className="text-sm text-muted-foreground">当前题型模式为 {questionType === "quiz" ? "题库问答" : "按钮验证"}。</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {chatId ? <Badge variant="outline">Chat {chatId}</Badge> : null}
+            <Badge variant={questionType === "quiz" ? "outline" : "secondary"} className={questionType === "quiz" ? "border-sky-200 bg-sky-50 text-sky-700 dark:border-cyan-400/20 dark:bg-cyan-500/10 dark:text-cyan-200" : ""}>
+              {questionType === "quiz" ? "当前使用题库模式" : "当前使用按钮模式"}
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-6">
+          <Alert>
+            <AlertTitle>题库说明</AlertTitle>
+            <AlertDescription>
+              切到 quiz 后，会从当前群题库随机出题；当前群没有题时，会回退到全局题库；全都没有时再降级成按钮验证。
+            </AlertDescription>
+          </Alert>
+
+          {questionType === "quiz" && questions.length === 0 ? (
+            <Alert className="border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-400/20 dark:bg-amber-500/10 dark:text-amber-100">
+              <AlertTitle>题库为空</AlertTitle>
+              <AlertDescription>quiz 模式下会自动降级成按钮验证。</AlertDescription>
+            </Alert>
+          ) : null}
+
+          <Card className="border bg-background/60 shadow-none">
+            <CardHeader>
+              <CardTitle className="text-base">AI 生成题库</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-4 md:grid-cols-3">
+              <div className="space-y-2">
+                <Label>生成范围</Label>
                 <Select
-                  options={[
-                    { label: "当前群", value: "chat" },
-                    { label: "全局题库", value: "global" },
-                  ]}
-                />
-              </Form.Item>
-            </Col>
-            <Col xs={24} md={16}>
-              <Form.Item label="题目" name="question" rules={[{ required: true, message: "必填" }]}>
-                <Input placeholder="例如：本群讨论时应优先做什么？" />
-              </Form.Item>
-            </Col>
-            {OPTION_FIELDS.map((field, index) => (
-              <Col xs={24} md={12} key={field}>
-                <Form.Item
-                  label={`选项 ${String.fromCharCode(65 + index)}`}
-                  name={field}
-                  rules={index < 2 ? [{ required: true, message: "前两个选项必填" }] : undefined}
+                  value={generateState.scope}
+                  onValueChange={(value) => setGenerateState((prev) => ({ ...prev, scope: value as "chat" | "global" }))}
                 >
-                  <Input placeholder={`请输入选项 ${String.fromCharCode(65 + index)}`} />
-                </Form.Item>
-              </Col>
-            ))}
-            <Col xs={24} md={12}>
-              <Form.Item label="正确答案" name="answer_original_index" rules={[{ required: true, message: "必选" }]}>
-                <Select placeholder="先填写选项再选择" options={answerChoices} />
-              </Form.Item>
-            </Col>
-            <Col xs={24} md={12} style={{ display: "flex", alignItems: "end" }}>
-              <Space wrap>
-                <Button type="primary" loading={loading} disabled={!chatId} onClick={() => void handleSubmit()}>
-                  {editingId === null ? "新增题目" : "保存修改"}
+                  <SelectTrigger>
+                    <SelectValue placeholder="选择范围" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="chat">当前群</SelectItem>
+                      <SelectItem value="global">全局题库</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>生成数量</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  max="5"
+                  value={generateState.count}
+                  onChange={(e) => setGenerateState((prev) => ({ ...prev, count: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>话题提示（可空）</Label>
+                <Input
+                  placeholder="例如：群规、技术交流、礼貌发言"
+                  value={generateState.topic_hint}
+                  onChange={(e) => setGenerateState((prev) => ({ ...prev, topic_hint: e.target.value }))}
+                />
+              </div>
+              <div className="md:col-span-3">
+                <Button
+                  disabled={!chatId || generating || loading}
+                  onClick={() =>
+                    void onGenerate({
+                      scope: generateState.scope,
+                      count: Number(generateState.count),
+                      topic_hint: generateState.topic_hint.trim() || undefined,
+                    })
+                  }
+                >
+                  <Sparkles className="mr-2 h-4 w-4" />
+                  {generating ? "生成中..." : "使用当前 AI 配置生成题目"}
                 </Button>
-                <Button onClick={resetForm}>清空</Button>
-              </Space>
-            </Col>
-          </Row>
-        </Form>
-        <Typography.Text type="secondary">
-          前两个选项必填，最多支持 4 个选项。前端会直接显示题目、全部选项和正确答案。
-        </Typography.Text>
-        <Table<VerificationQuestion>
-          rowKey="id"
-          loading={loading}
-          columns={columns}
-          dataSource={questions}
-          pagination={{ pageSize: 6 }}
-          locale={{ emptyText: "当前还没有验证题" }}
-        />
-      </Space>
-    </Card>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border bg-background/60 shadow-none">
+            <CardHeader>
+              <CardTitle className="text-base">{editingId === null ? "新增验证题" : `编辑验证题 #${editingId}`}</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>范围</Label>
+                  <Select
+                    value={formState.scope}
+                    onValueChange={(value) => setFormState((prev) => ({ ...prev, scope: value as "chat" | "global" }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="选择范围" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="chat">当前群</SelectItem>
+                        <SelectItem value="global">全局题库</SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>正确答案</Label>
+                  <Select
+                    value={formState.answer_original_index || undefined}
+                    onValueChange={(value) => setFormState((prev) => ({ ...prev, answer_original_index: value }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="请选择正确答案" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {answerChoices.map((choice) => (
+                          <SelectItem key={choice.value} value={choice.value}>
+                            {choice.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>题目</Label>
+                <Input
+                  value={formState.question}
+                  onChange={(e) => setFormState((prev) => ({ ...prev, question: e.target.value }))}
+                  placeholder="请输入验证题目"
+                />
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                {OPTION_FIELDS.map((field, index) => (
+                  <div key={field} className="space-y-2">
+                    <Label>选项 {String.fromCharCode(65 + index)}</Label>
+                    <Input
+                      value={formState[field]}
+                      onChange={(e) => setFormState((prev) => ({ ...prev, [field]: e.target.value }))}
+                      placeholder={`请输入选项 ${String.fromCharCode(65 + index)}`}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex flex-wrap gap-3">
+                <Button disabled={loading} onClick={() => void handleSubmit()}>
+                  {editingId === null ? <Plus className="mr-2 h-4 w-4" /> : <Pencil className="mr-2 h-4 w-4" />}
+                  {editingId === null ? "新增验证题" : "保存修改"}
+                </Button>
+                <Button variant="outline" onClick={resetForm}>
+                  <RotateCcw className="mr-2 h-4 w-4" />
+                  重置表单
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="rounded-xl border bg-background/60">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[90px]">范围</TableHead>
+                  <TableHead>题目</TableHead>
+                  <TableHead>选项</TableHead>
+                  <TableHead className="w-[220px]">正确答案</TableHead>
+                  <TableHead className="w-[180px]">创建时间</TableHead>
+                  <TableHead className="w-[150px]">操作</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {questions.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
+                      {loading ? "题库加载中..." : "暂无验证题"}
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  questions.map((row) => (
+                    <TableRow key={row.id}>
+                      <TableCell>
+                        <Badge variant={row.scope === "global" ? "secondary" : "outline"}>
+                          {row.scope === "global" ? "全局" : "当前群"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="max-w-[280px] truncate">{row.question}</TableCell>
+                      <TableCell className="max-w-[260px] truncate">{row.options.join(" / ")}</TableCell>
+                      <TableCell>{row.answer_text ?? "-"}</TableCell>
+                      <TableCell>{formatTime(row.created_at)}</TableCell>
+                      <TableCell>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setEditingId(row.id);
+                              setFormState(toFormValues(row));
+                            }}
+                          >
+                            <Pencil className="mr-2 h-4 w-4" />
+                            编辑
+                          </Button>
+                          <Button size="sm" variant="destructive" onClick={() => setDeletingId(row.id)}>
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            删除
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Dialog open={deletingId !== null} onOpenChange={(open) => !open && setDeletingId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确认删除验证题</DialogTitle>
+            <DialogDescription>删除后不可恢复，确认继续吗？</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeletingId(null)}>
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                if (deletingId === null) return;
+                await onDelete(deletingId);
+                setDeletingId(null);
+              }}
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              确认删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

@@ -1,9 +1,9 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { App as AntApp, ConfigProvider } from "antd";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Toaster } from "sonner";
 import { App } from "./App";
-import "antd/dist/reset.css";
+import { ThemeProvider } from "./components/ui/theme-provider";
 import "./styles.css";
 
 const queryClient = new QueryClient({
@@ -16,21 +16,11 @@ const queryClient = new QueryClient({
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <ConfigProvider
-      theme={{
-        token: {
-          colorPrimary: "#1677ff",
-          borderRadius: 8,
-          colorBgLayout: "#f5f7fb",
-          fontSize: 13,
-        },
-      }}
-    >
-      <AntApp>
-        <QueryClientProvider client={queryClient}>
-          <App />
-        </QueryClientProvider>
-      </AntApp>
-    </ConfigProvider>
+    <ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <App />
+        <Toaster richColors position="top-right" />
+      </QueryClientProvider>
+    </ThemeProvider>
   </React.StrictMode>,
 );

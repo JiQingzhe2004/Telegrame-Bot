@@ -1,16 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, App as AntApp, Badge, Button, Input, Layout, Menu, Space, Spin, Tag, Typography } from "antd";
+import { toast } from "sonner";
 import {
-  ApiOutlined,
-  DashboardOutlined,
-  FileSearchOutlined,
-  MessageOutlined,
-  OrderedListOutlined,
-  SafetyCertificateOutlined,
-  SettingOutlined,
-  TeamOutlined,
-  ThunderboltOutlined,
-} from "@ant-design/icons";
+  LayoutDashboard,
+  Info,
+  Users,
+  Bot,
+  ShieldCheck,
+  ListOrdered,
+  FileSearch,
+  Zap,
+  MessageSquare,
+  Settings,
+  RefreshCw,
+  Settings2,
+  Wifi,
+} from "lucide-react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ApiClient, type AdminActionResult } from "@/lib/api";
 import {
@@ -25,6 +29,7 @@ import {
 import { queryKeys } from "@/lib/queryKeys";
 import { RunOverviewPanel } from "@/components/admin/RunOverviewPanel";
 import { GroupManagePanel } from "@/components/admin/GroupManagePanel";
+import { GroupInfoPanel } from "@/components/admin/GroupInfoPanel";
 import { AiConfigPanel } from "@/components/admin/AiConfigPanel";
 import { PolicyConfigPanel } from "@/components/admin/PolicyConfigPanel";
 import { ListManagePanel } from "@/components/admin/ListManagePanel";
@@ -33,17 +38,24 @@ import { EnforcementPanel } from "@/components/admin/EnforcementPanel";
 import { AppealsPanel } from "@/components/admin/AppealsPanel";
 import { SystemSettingsPanel } from "@/components/admin/SystemSettingsPanel";
 import type { AdminActions, AdminDataBundle } from "@/components/admin/types";
+import { AppLayout, type SidebarItem } from "@/components/admin/AppLayout";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
-const menuItems = [
-  { key: "overview", icon: <DashboardOutlined />, label: "运行总览" },
-  { key: "group", icon: <TeamOutlined />, label: "群管理" },
-  { key: "ai", icon: <ApiOutlined />, label: "AI 配置" },
-  { key: "policy", icon: <SafetyCertificateOutlined />, label: "策略配置" },
-  { key: "lists", icon: <OrderedListOutlined />, label: "名单管理" },
-  { key: "audit", icon: <FileSearchOutlined />, label: "审计中心" },
-  { key: "enforcement", icon: <ThunderboltOutlined />, label: "处置记录" },
-  { key: "appeals", icon: <MessageOutlined />, label: "申诉与回滚" },
-  { key: "system", icon: <SettingOutlined />, label: "系统设置" },
+const menuItems: readonly SidebarItem[] = [
+  { key: "overview", icon: LayoutDashboard, label: "运行总览" },
+  { key: "group-info", icon: Info, label: "群信息" },
+  { key: "group-members", icon: Users, label: "成员管理" },
+  { key: "ai", icon: Bot, label: "AI 配置" },
+  { key: "policy", icon: ShieldCheck, label: "策略配置" },
+  { key: "lists", icon: ListOrdered, label: "名单管理" },
+  { key: "audit", icon: FileSearch, label: "审计中心" },
+  { key: "enforcement", icon: Zap, label: "处置记录" },
+  { key: "appeals", icon: MessageSquare, label: "申诉与回滚" },
+  { key: "system", icon: Settings, label: "系统设置" },
 ] as const;
 
 type MenuKey = (typeof menuItems)[number]["key"];
@@ -67,13 +79,12 @@ export function AdminConsolePage({
   backendVersion,
   onLogout,
 }: Props) {
-  const { message, notification } = AntApp.useApp();
   const api = useMemo(() => new ApiClient(baseUrl), [baseUrl]);
 
   const [menuKey, setMenuKey] = useState<MenuKey>("overview");
   const [chatId, setChatId] = useState(readStorage("bot_chat_id"));
   const [memberKeyword, setMemberKeyword] = useState(readStorage("bot_member_keyword"));
-  const [globalSearch, setGlobalSearch] = useState("");
+  const [globalSearch] = useState("");
   const [memberAutoRefresh, setMemberAutoRefresh] = useState(true);
   const [lastSyncAt, setLastSyncAt] = useState<Date | null>(null);
   const [permissionChecking, setPermissionChecking] = useState(false);
@@ -135,7 +146,7 @@ export function AdminConsolePage({
     queryFn: () => api.adminOverview(chatId, adminToken),
     enabled: authed && chatReady,
     placeholderData: keepCurrentChatData,
-    refetchInterval: menuKey === "overview" || menuKey === "group" ? 15000 : false,
+    refetchInterval: menuKey === "overview" || menuKey === "group-info" || menuKey === "group-members" ? 15000 : false,
     refetchOnWindowFocus: false,
   });
   const membersQuery = useQuery({
@@ -143,7 +154,7 @@ export function AdminConsolePage({
     queryFn: () => api.adminListMembers(chatId, adminToken, 200, memberKeyword),
     enabled: authed && chatReady,
     placeholderData: keepCurrentMembersData,
-    refetchInterval: menuKey === "group" && memberAutoRefresh ? 5000 : false,
+    refetchInterval: menuKey === "group-members" && memberAutoRefresh ? 5000 : false,
     refetchOnWindowFocus: false,
   });
   const verificationQuestionsQuery = useQuery({
@@ -233,8 +244,8 @@ export function AdminConsolePage({
     blacklistQuery.data,
     auditsQuery.data,
     enforcementsQuery.data,
-      appealsQuery.data,
-    ]);
+    appealsQuery.data,
+  ]);
 
   const isRefreshing =
     statusQuery.isFetching ||
@@ -258,14 +269,14 @@ export function AdminConsolePage({
     if (chatReady) {
       tasks.push(settingsQuery.refetch(), overviewQuery.refetch());
       if (menuKey === "ai") tasks.push(verificationQuestionsQuery.refetch());
-      if (menuKey === "group") tasks.push(membersQuery.refetch());
+      if (menuKey === "group-members") tasks.push(membersQuery.refetch());
       if (menuKey === "lists") tasks.push(whitelistQuery.refetch(), blacklistQuery.refetch());
       if (menuKey === "audit") tasks.push(auditsQuery.refetch());
       if (menuKey === "enforcement") tasks.push(enforcementsQuery.refetch());
       if (menuKey === "appeals") tasks.push(appealsQuery.refetch());
     }
     await Promise.all(tasks);
-    message.success("数据已刷新");
+    toast.success("数据已刷新");
   };
 
   const refreshModerationData = async () => {
@@ -280,13 +291,13 @@ export function AdminConsolePage({
     try {
       const result = await runner();
       if (!result.applied || !result.permission_ok) {
-        notification.warning({ message: "动作未完全执行", description: formatAdminActionResult(result) });
+        toast.warning(formatAdminActionResult(result), { description: "动作未完全执行" });
       } else {
-        message.success(successText || formatAdminActionResult(result));
+        toast.success(successText || formatAdminActionResult(result));
       }
       await refreshModerationData();
     } catch (error) {
-      message.error(getErrorMessage(error));
+      toast.error(getErrorMessage(error));
     }
   };
 
@@ -295,12 +306,10 @@ export function AdminConsolePage({
     try {
       const report = buildPermissionCheck(overviewQuery.data?.capabilities);
       if (report.allGood) {
-        notification.success({ message: "权限自检通过", description: "机器人关键管理员权限完整，可执行常见管理动作。" });
+        toast.success("权限自检通过", { description: "机器人关键管理员权限完整，可执行常见管理动作。" });
       } else {
-        notification.warning({
-          message: "权限自检未通过",
+        toast.warning("权限自检未通过", {
           description: `缺少权限：${report.missingZh.join("、")}。请到 Telegram 群管理里给机器人补齐对应权限。`,
-          duration: 8,
         });
       }
     } finally {
@@ -329,10 +338,10 @@ export function AdminConsolePage({
     setSavingRuntimeConfig(true);
     try {
       await api.updateRuntimeConfig(adminToken, payload);
-      message.success("AI 与入群配置已更新并热生效");
+      toast.success("AI 与入群配置已更新并热生效");
       await Promise.all([runtimeConfigQuery.refetch(), statusQuery.refetch()]);
     } catch (error) {
-      message.error(getErrorMessage(error));
+      toast.error(getErrorMessage(error));
     } finally {
       setSavingRuntimeConfig(false);
     }
@@ -358,10 +367,10 @@ export function AdminConsolePage({
     }
     try {
       await api.createVerificationQuestion(chatId, adminToken, payload);
-      message.success("验证题已新增");
+      toast.success("验证题已新增");
       await verificationQuestionsQuery.refetch();
     } catch (error) {
-      message.error(getErrorMessage(error));
+      toast.error(getErrorMessage(error));
     }
   };
 
@@ -374,10 +383,10 @@ export function AdminConsolePage({
     }
     try {
       await api.updateVerificationQuestion(chatId, adminToken, questionId, payload);
-      message.success("验证题已更新");
+      toast.success("验证题已更新");
       await verificationQuestionsQuery.refetch();
     } catch (error) {
-      message.error(getErrorMessage(error));
+      toast.error(getErrorMessage(error));
     }
   };
 
@@ -387,10 +396,10 @@ export function AdminConsolePage({
     }
     try {
       await api.deleteVerificationQuestion(chatId, adminToken, questionId);
-      message.success("验证题已删除");
+      toast.success("验证题已删除");
       await verificationQuestionsQuery.refetch();
     } catch (error) {
-      message.error(getErrorMessage(error));
+      toast.error(getErrorMessage(error));
     }
   };
 
@@ -401,10 +410,10 @@ export function AdminConsolePage({
     setGeneratingVerificationQuestions(true);
     try {
       const result = await api.generateVerificationQuestions(chatId, adminToken, payload);
-      message.success(`AI 已生成 ${result.count} 道题（模型 ${result.model}）`);
+      toast.success(`AI 已生成 ${result.count} 道题`, { description: `模型 ${result.model}` });
       await verificationQuestionsQuery.refetch();
     } catch (error) {
-      message.error(getErrorMessage(error));
+      toast.error(getErrorMessage(error));
     } finally {
       setGeneratingVerificationQuestions(false);
     }
@@ -414,16 +423,16 @@ export function AdminConsolePage({
     const out = await chatsQuery.refetch();
     const nextChatId = out.data?.[0] ? String(out.data[0].chat_id) : "";
     if (!out.data?.length) {
-      message.info("还没有可用群聊。请先把机器人拉进群；若仍未出现，在群里发送一条消息或命令后再试。");
+      toast.info("还没有可用群聊。请先把机器人拉进群；若仍未出现，在群里发送一条消息或命令后再试。");
       return;
     }
     if (!chatId && nextChatId) {
       setChatId(nextChatId);
       writeStorage("bot_chat_id", nextChatId);
-      message.success("已自动选中第一个可用群");
+      toast.success("已自动选中第一个可用群");
       return;
     }
-    message.success("群列表已刷新");
+    toast.success("群列表已刷新");
   };
 
   const actions: AdminActions = {
@@ -431,57 +440,57 @@ export function AdminConsolePage({
     updateSettings: async (payload) => {
       try {
         await api.updateSettings(chatId, adminToken, payload);
-        message.success("策略已更新");
+        toast.success("策略已更新");
         await Promise.all([settingsQuery.refetch(), auditsQuery.refetch(), overviewQuery.refetch()]);
       } catch (error) {
-        message.error(getErrorMessage(error));
+        toast.error(getErrorMessage(error));
       }
     },
     addWhitelist: async (value) => {
       if (!value.trim()) return;
       try {
         await api.addWhitelist(chatId, adminToken, value.trim());
-        message.success("白名单已添加");
+        toast.success("白名单已添加");
         await whitelistQuery.refetch();
       } catch (error) {
-        message.error(getErrorMessage(error));
+        toast.error(getErrorMessage(error));
       }
     },
     addBlacklist: async (value) => {
       if (!value.trim()) return;
       try {
         await api.addBlacklist(chatId, adminToken, value.trim());
-        message.success("黑名单词已添加");
+        toast.success("黑名单词已添加");
         await blacklistQuery.refetch();
       } catch (error) {
-        message.error(getErrorMessage(error));
+        toast.error(getErrorMessage(error));
       }
     },
     removeWhitelist: async (value) => {
       try {
         await api.deleteWhitelist(chatId, adminToken, value);
-        message.success("已移除");
+        toast.success("已移除");
         await whitelistQuery.refetch();
       } catch (error) {
-        message.error(getErrorMessage(error));
+        toast.error(getErrorMessage(error));
       }
     },
     removeBlacklist: async (value) => {
       try {
         await api.deleteBlacklist(chatId, adminToken, value);
-        message.success("已移除");
+        toast.success("已移除");
         await blacklistQuery.refetch();
       } catch (error) {
-        message.error(getErrorMessage(error));
+        toast.error(getErrorMessage(error));
       }
     },
     rollback: async (enforcementId) => {
       try {
         await api.rollback(adminToken, enforcementId);
-        message.success(`回滚请求已提交 #${enforcementId}`);
+        toast.success(`回滚请求已提交 #${enforcementId}`);
         await enforcementsQuery.refetch();
       } catch (error) {
-        message.error(getErrorMessage(error));
+        toast.error(getErrorMessage(error));
       }
     },
     runAction,
@@ -530,32 +539,49 @@ export function AdminConsolePage({
   const renderContent = () => {
     if (!chatId) {
       return (
-        <Alert
-          type="info"
-          showIcon
-          message="还没有可用的 Chat"
-          description="机器人被拉进群后会自动登记该群。若列表还没出现，先点一次“自动获取 Chat”；如果仍没有，就在目标群里发送一条消息或管理员命令后再试。"
-          action={
-            <Space>
-              <Button size="small" onClick={() => void reloadChats()}>
-                自动获取 Chat
-              </Button>
-              <Button size="small" type="link" onClick={() => setMenuKey("system")}>
-                打开系统设置
-              </Button>
-            </Space>
-          }
-        />
+        <Alert className="border-sky-200 bg-sky-50 text-sky-900 dark:border-cyan-400/20 dark:bg-cyan-500/10 dark:text-cyan-100">
+          <AlertTitle>还没有可用的 Chat</AlertTitle>
+          <AlertDescription className="flex flex-wrap items-center gap-3">
+            <span>机器人被拉进群后会自动登记该群。若列表还没出现，先点一次“自动获取 Chat”；如果仍没有，就在目标群里发送一条消息或管理员命令后再试。</span>
+            <Button size="sm" onClick={() => void reloadChats()}>
+              <Wifi className="mr-2 h-4 w-4" />
+              自动获取 Chat
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setMenuKey("system")}>
+              <Settings2 className="mr-2 h-4 w-4" />
+              打开系统设置
+            </Button>
+          </AlertDescription>
+        </Alert>
       );
     }
 
     if (menuKey === "overview") {
       return <RunOverviewPanel runtimeState={runtimeState} chatId={chatId} data={bundle} onPermissionCheck={runPermissionCheck} checking={permissionChecking} />;
     }
-    if (menuKey === "group") {
+    if (menuKey === "group-info") {
+      return (
+        <GroupInfoPanel
+          chatId={chatId}
+          data={bundle}
+          actions={actions}
+          apiActions={{
+            deleteMessage: memberActions.deleteMessage,
+            pinMessage: memberActions.pinMessage,
+            unpinMessage: memberActions.unpinMessage,
+            createInvite: memberActions.createInvite,
+            revokeInvite: memberActions.revokeInvite,
+            promote: memberActions.promote,
+            demote: memberActions.demote,
+            setTitle: memberActions.setTitle,
+            updateProfile: memberActions.updateProfile,
+          }}
+        />
+      );
+    }
+    if (menuKey === "group-members") {
       return (
         <GroupManagePanel
-          chatId={chatId}
           data={bundle}
           actions={actions}
           autoRefresh={memberAutoRefresh}
@@ -605,7 +631,7 @@ export function AdminConsolePage({
           setChatId(values.chatId);
           writeStorage("bot_base_url", values.baseUrl);
           writeStorage("bot_chat_id", values.chatId);
-          message.success("连接配置已保存");
+          toast.success("连接配置已保存");
         }}
         runtimeState={runtimeState}
         lastSyncText={lastSyncAt ? formatTime(lastSyncAt.toISOString()) : "-"}
@@ -614,73 +640,68 @@ export function AdminConsolePage({
   };
 
   return (
-    <Layout className="admin-console" style={{ minHeight: "100vh" }}>
-      <Layout.Sider
-        className="admin-sider"
-        width={240}
-        theme="light"
-        style={{
-          overflow: "auto",
-          height: "100vh",
-          position: "fixed",
-          insetInlineStart: 0,
-          top: 0,
-          bottom: 0,
-        }}
-      >
-        <div className="admin-brand" style={{ padding: 16, borderBottom: "1px solid #f0f0f0" }}>
-          <Typography.Title level={5} style={{ margin: 0 }}>
-            Telegram 管理后台
-          </Typography.Title>
-          <Typography.Text type="secondary">企业聚合控制台</Typography.Text>
-        </div>
-        <Menu mode="inline" selectedKeys={[menuKey]} items={menuItems as unknown as never[]} onClick={(e) => setMenuKey(e.key as MenuKey)} />
-      </Layout.Sider>
-      <Layout className="admin-main" style={{ marginInlineStart: 240 }}>
-        <Layout.Header className="admin-header" style={{ background: "#fff", borderBottom: "1px solid #f0f0f0", paddingInline: 20 }}>
-          <Space align="center" className="admin-header-bar" style={{ width: "100%", justifyContent: "space-between" }}>
-            <Space align="center" className="admin-header-left">
-              <Badge status={runtimeState === "active" ? "success" : "default"} text={runtimeState.toUpperCase()} />
-              <Tag color="blue">{chatId || "未选择 Chat"}</Tag>
-              <Tag color="cyan">前端 v{frontendVersion}</Tag>
-              <Tag color="geekblue">后端 v{backendVersion}</Tag>
-              <Tag color={isRefreshing ? "processing" : "success"}>{isRefreshing ? "同步中" : "已同步"}</Tag>
-              <Typography.Text type="secondary">最近同步: {lastSyncAt ? formatTime(lastSyncAt.toISOString()) : "-"}</Typography.Text>
-              {chatReady && overviewQuery.data?.capabilities ? (
-                (() => {
-                  const report = buildPermissionCheck(overviewQuery.data.capabilities);
-                  return report.allGood ? (
-                    <Tag color="success">权限正常</Tag>
-                  ) : (
-                    <Tag color="warning">
-                      缺权限: {report.missing.slice(0, 1).map(translatePermission).join("、")}
-                      {report.missing.length > 1 ? "..." : ""}
-                    </Tag>
-                  );
-                })()
-              ) : null}
-            </Space>
-            <Space align="center" className="admin-header-right">
-              <Input.Search
-                placeholder="快捷搜索（审计/处置/申诉）"
-                allowClear
-                value={globalSearch}
-                onChange={(e) => setGlobalSearch(e.target.value)}
-                style={{ width: 280 }}
-              />
-              <Button onClick={() => void refreshVisibleData()}>手动刷新</Button>
-              <Button onClick={onLogout}>退出登录</Button>
-            </Space>
-          </Space>
-        </Layout.Header>
-        <Layout.Content className="admin-content" style={{ padding: 20, minHeight: "calc(100vh - 64px)", overflow: "auto" }}>
-          {statusQuery.isError ? <Alert type="error" showIcon message={getErrorMessage(statusQuery.error)} style={{ marginBottom: 16 }} /> : null}
-          {isLoading ? <Spin style={{ marginBottom: 16 }} /> : null}
-          <div key={menuKey} className="admin-panel-stage">
-            {renderContent()}
+    <AppLayout
+      brandTitle="Telegram 管理后台"
+      brandSubtitle="Bot Management Console"
+      menuItems={menuItems}
+      activeMenuKey={menuKey}
+      onMenuChange={(key) => setMenuKey(key as MenuKey)}
+      onLogout={onLogout}
+      headerLeft={
+        <>
+          <Badge variant={runtimeState === "active" ? "default" : "secondary"}>
+            {runtimeState.toUpperCase()}
+          </Badge>
+          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-cyan-500/15 dark:text-cyan-200 dark:border-cyan-400/20">
+            {chatId || "未选择 Chat"}
+          </Badge>
+          <Badge variant="outline" className="hidden sm:inline-flex bg-slate-50 dark:bg-slate-500/15 dark:border-slate-400/20 dark:text-slate-200">
+            前端 v{frontendVersion}
+          </Badge>
+          <Badge variant="outline" className="hidden sm:inline-flex bg-slate-50 dark:bg-slate-500/15 dark:border-slate-400/20 dark:text-slate-200">
+            后端 v{backendVersion}
+          </Badge>
+          <div className="ml-2 flex items-center gap-2 text-xs text-muted-foreground">
+            <div className={cn("h-2 w-2 rounded-full", isRefreshing ? "bg-amber-400 animate-pulse" : "bg-emerald-500")} />
+            {isRefreshing ? "同步中..." : `最后同步: ${lastSyncAt ? formatTime(lastSyncAt.toISOString()) : "-"}`}
           </div>
-        </Layout.Content>
-      </Layout>
-    </Layout>
+        </>
+      }
+      headerRight={
+        <div className="flex items-center gap-2">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" onClick={() => void refreshVisibleData()}>
+                  <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>手动刷新数据</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          {chatReady && overviewQuery.data?.capabilities
+            ? (() => {
+                const report = buildPermissionCheck(overviewQuery.data.capabilities);
+                return (
+                  <Badge variant={report.allGood ? "outline" : "destructive"} className={cn(report.allGood && "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-200 dark:border-emerald-400/20")}>
+                    {report.allGood ? "权限正常" : `缺权限: ${report.missing.length}`}
+                  </Badge>
+                );
+              })()
+            : null}
+        </div>
+      }
+    >
+      {statusQuery.isError && (
+        <Alert variant="destructive" className="mb-6">
+          <AlertTitle>状态查询失败</AlertTitle>
+          <AlertDescription>{getErrorMessage(statusQuery.error)}</AlertDescription>
+        </Alert>
+      )}
+      <div key={menuKey} className="admin-panel-stage">
+        {renderContent()}
+      </div>
+    </AppLayout>
   );
 }
