@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Gift, Plus, RefreshCw, Trash2, Trophy } from "lucide-react";
+import { toast } from "sonner";
 import type { LotteryDetail, LotteryEntry, LotteryPayload } from "@/lib/api";
 import type { AdminDataBundle } from "@/components/admin/types";
 import { Button } from "@/components/ui/button";
@@ -53,13 +54,14 @@ export function LotteryPanel({
   onLoadEntries,
 }: Props) {
   const [selectedLotteryId, setSelectedLotteryId] = useState<number | null>(null);
+  const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [formState, setFormState] = useState<LotteryPayload>(emptyPayload);
 
   useEffect(() => {
-    if (!selectedLotteryId && data.lotteries.length > 0) {
+    if (!selectedLotteryId && !isCreatingNew && data.lotteries.length > 0) {
       setSelectedLotteryId(data.lotteries[0].id);
     }
-  }, [data.lotteries, selectedLotteryId]);
+  }, [data.lotteries, isCreatingNew, selectedLotteryId]);
 
   const selectedLottery = useMemo(
     () => data.lotteries.find((item) => item.id === selectedLotteryId) ?? null,
@@ -67,7 +69,7 @@ export function LotteryPanel({
   );
 
   useEffect(() => {
-    if (!selectedLottery) {
+    if (!selectedLottery || isCreatingNew) {
       setFormState(emptyPayload);
       return;
     }
@@ -89,7 +91,90 @@ export function LotteryPanel({
         sort_order: prize.sort_order ?? index,
       })),
     });
-  }, [selectedLottery]);
+  }, [isCreatingNew, selectedLottery]);
+
+  const buildSubmitPayload = (): LotteryPayload => {
+    const title = formState.title.trim();
+    if (!title) {
+      throw new Error("请先填写活动标题");
+    }
+    if (!formState.starts_at || !formState.entry_deadline_at) {
+      throw new Error("请完整填写开始时间和报名截止时间");
+    }
+    const startsAt = new Date(formState.starts_at);
+    const deadlineAt = new Date(formState.entry_deadline_at);
+    const drawAt = new Date(formState.draw_at || formState.entry_deadline_at);
+    if (Number.isNaN(startsAt.getTime()) || Number.isNaN(deadlineAt.getTime()) || Number.isNaN(drawAt.getTime())) {
+      throw new Error("活动时间格式无效，请重新选择");
+    }
+    if (deadlineAt.getTime() < startsAt.getTime()) {
+      throw new Error("报名截止时间不能早于开始时间");
+    }
+    if (drawAt.getTime() < deadlineAt.getTime()) {
+      throw new Error("开奖时间不能早于报名截止时间");
+    }
+    const prizes = formState.prizes
+      .map((prize, index) => ({
+        title: prize.title.trim(),
+        winner_count: Math.max(Number(prize.winner_count || 0), 0),
+        sort_order: index,
+      }))
+      .filter((prize) => prize.title);
+    if (prizes.length === 0) {
+      throw new Error("请至少配置一个奖项");
+    }
+    return {
+      ...formState,
+      title,
+      description: formState.description.trim(),
+      points_cost: Math.max(Number(formState.points_cost || 0), 0),
+      points_threshold: Math.max(Number(formState.points_threshold || 0), 0),
+      max_entries_per_user: Math.max(Number(formState.max_entries_per_user || 1), 1),
+      starts_at: startsAt.toISOString(),
+      entry_deadline_at: deadlineAt.toISOString(),
+      draw_at: drawAt.toISOString(),
+      prizes,
+    };
+  };
+
+  const handleCreate = async () => {
+    try {
+      const payload = buildSubmitPayload();
+      await onCreateLottery(payload);
+      setIsCreatingNew(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "发布活动失败");
+    }
+  };
+
+  const handleUpdate = async () => {
+    if (!selectedLottery) return;
+    try {
+      const payload = buildSubmitPayload();
+      await onUpdateLottery(selectedLottery.id, payload);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "保存活动失败");
+    }
+  };
+
+  const handleCancel = async () => {
+    if (!selectedLottery) return;
+    try {
+      await onCancelLottery(selectedLottery.id);
+      setIsCreatingNew(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "取消活动失败");
+    }
+  };
+
+  const handleDraw = async () => {
+    if (!selectedLottery) return;
+    try {
+      await onDrawLottery(selectedLottery.id);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "开奖失败");
+    }
+  };
 
   const selectedEntries = selectedLotteryId
     ? data.lotteryEntries.filter((item) => item.lottery_id === selectedLotteryId)
@@ -108,8 +193,12 @@ export function LotteryPanel({
             <Button
               variant="outline"
               onClick={() => {
+                setIsCreatingNew(true);
                 setSelectedLotteryId(null);
-                setFormState(emptyPayload);
+                setFormState({
+                  ...emptyPayload,
+                  prizes: emptyPayload.prizes.map((item) => ({ ...item })),
+                });
               }}
             >
               <Plus className="mr-2 h-4 w-4" />
@@ -248,19 +337,19 @@ export function LotteryPanel({
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <Button onClick={() => void onCreateLottery(formState)}>
+              <Button onClick={() => void handleCreate()}>
                 <Gift className="mr-2 h-4 w-4" />
                 发布新活动
               </Button>
               {selectedLottery ? (
                 <>
-                  <Button variant="outline" onClick={() => void onUpdateLottery(selectedLottery.id, formState)}>
+                  <Button variant="outline" onClick={() => void handleUpdate()}>
                     保存当前活动
                   </Button>
-                  <Button variant="destructive" onClick={() => void onCancelLottery(selectedLottery.id)}>
+                  <Button variant="destructive" onClick={() => void handleCancel()}>
                     取消活动
                   </Button>
-                  <Button variant="outline" onClick={() => void onDrawLottery(selectedLottery.id)}>
+                  <Button variant="outline" onClick={() => void handleDraw()}>
                     <Trophy className="mr-2 h-4 w-4" />
                     立即开奖
                   </Button>
@@ -281,6 +370,7 @@ export function LotteryPanel({
                     type="button"
                     className={`w-full rounded-xl border p-4 text-left ${selectedLotteryId === lottery.id ? "border-primary bg-background" : "bg-background/70"}`}
                     onClick={() => {
+                      setIsCreatingNew(false);
                       setSelectedLotteryId(lottery.id);
                       void onLoadEntries(lottery.id);
                     }}
