@@ -36,11 +36,14 @@ from bot.storage.repo import BotRepository
 from bot.system_config import RuntimeConfig
 from bot.telegram.commands import (
     POINTS_SELF_CALLBACK_PREFIX,
+    USER_FLOW_CALLBACK_PREFIX,
     _send_private_points,
     ai_cmd,
     appeal_cmd,
     banword_cmd,
     checkin_cmd,
+    on_private_text,
+    on_user_flow_callback,
     config_cmd,
     forgive_cmd,
     pay_cmd,
@@ -790,7 +793,7 @@ async def on_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if text.strip().lower() in {"积分", "查积分", "我的积分"}:
         try:
             await msg.reply_text(
-                "点击下方按钮私密查看你的积分。",
+                "我把个人积分入口放到下面了，点一下就能进私聊继续看。",
                 reply_markup=points_entry_markup(chat.id, user.id),
             )
         except TelegramError as exc:
@@ -841,9 +844,11 @@ def build_application(
     app.add_handler(CommandHandler("redeem", redeem_cmd))
     app.add_handler(CommandHandler("points_add", points_add_cmd))
     app.add_handler(CommandHandler("points_sub", points_sub_cmd))
+    app.add_handler(CallbackQueryHandler(on_user_flow_callback, pattern=f"^{USER_FLOW_CALLBACK_PREFIX}"))
     app.add_handler(CallbackQueryHandler(on_points_self_callback, pattern=f"^{POINTS_SELF_CALLBACK_PREFIX}"))
     app.add_handler(CallbackQueryHandler(on_join_verify_callback, pattern=f"^{VERIFY_CALLBACK_PREFIX}"))
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, on_new_chat_members))
+    app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT & (~filters.COMMAND), on_private_text))
     app.add_handler(MessageHandler(filters.ALL & (~filters.COMMAND), on_group_message))
     register_inspection_job(app)
     app.post_init = _register_bot_commands

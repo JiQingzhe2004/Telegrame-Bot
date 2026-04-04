@@ -19,7 +19,16 @@ from bot.telegram.adapter_ptb import (
     on_join_verify_callback,
     on_new_chat_members,
 )
-from bot.telegram.commands import pay_cmd, points_cmd, rank_cmd, status_cmd
+from bot.telegram.commands import (
+    USER_FLOW_CALLBACK_PREFIX,
+    on_private_text,
+    on_user_flow_callback,
+    pay_cmd,
+    points_cmd,
+    rank_cmd,
+    start_cmd,
+    status_cmd,
+)
 from bot.utils.time import utc_now
 
 
@@ -501,3 +510,135 @@ def test_points_cmd_group_failure_includes_private_link_button(tmp_path):
 
     reply_text.assert_awaited_once()
     assert "请先手动打开机器人私聊窗口并发送 /start" in reply_text.await_args.args[0]
+
+
+def test_start_cmd_in_private_renders_home_menu(tmp_path):
+    repo = make_repo(tmp_path)
+    reply_text = AsyncMock()
+    update = SimpleNamespace(
+        effective_chat=SimpleNamespace(id=42, type=Chat.PRIVATE, title=None),
+        effective_user=SimpleNamespace(id=42, username="alice"),
+        effective_message=SimpleNamespace(reply_text=reply_text),
+    )
+    context = SimpleNamespace(
+        application=SimpleNamespace(bot_data={"repo": repo}),
+        bot=SimpleNamespace(username="test_bot"),
+        args=[],
+    )
+
+    asyncio.run(start_cmd(update, context))
+
+    reply_text.assert_awaited_once()
+    assert "个人中心" in reply_text.await_args.args[0]
+    assert reply_text.await_args.kwargs["reply_markup"] is not None
+
+
+def test_user_flow_shop_redeem_via_callbacks(tmp_path):
+    repo = make_repo(tmp_path)
+    repo.upsert_chat_user(
+        ChatRef(chat_id=-100300, type=Chat.SUPERGROUP, title="积分群"),
+        UserRef(user_id=42, username="alice", is_bot=False, first_name="Alice"),
+    )
+    repo.adjust_points(chat_id=-100300, user_id=42, amount=50, event_type="admin_adjust", operator="test")
+    query = SimpleNamespace(
+        data=f"{USER_FLOW_CALLBACK_PREFIX}shop:item:-100300:leaderboard_title",
+        answer=AsyncMock(),
+        edit_message_text=AsyncMock(),
+    )
+    update = SimpleNamespace(
+        callback_query=query,
+        effective_user=SimpleNamespace(id=42, username="alice"),
+        effective_chat=SimpleNamespace(id=42, type=Chat.PRIVATE, title=None),
+    )
+    context = SimpleNamespace(
+        application=SimpleNamespace(bot_data={"repo": repo, "user_sessions": {"42": {"recent_chat_id": -100300, "recent_chat_title": "积分群"}}}),
+        bot=SimpleNamespace(username="test_bot"),
+    )
+
+    asyncio.run(on_user_flow_callback(update, context))
+
+    query.answer.assert_awaited_once()
+    assert "商品详情" in query.edit_message_text.await_args.kwargs["text"]
+
+    redeem_query = SimpleNamespace(
+        data=f"{USER_FLOW_CALLBACK_PREFIX}shop:redeem:-100300:leaderboard_title",
+        answer=AsyncMock(),
+        edit_message_text=AsyncMock(),
+    )
+    redeem_update = SimpleNamespace(
+        callback_query=redeem_query,
+        effective_user=SimpleNamespace(id=42, username="alice"),
+        effective_chat=SimpleNamespace(id=42, type=Chat.PRIVATE, title=None),
+    )
+
+    asyncio.run(on_user_flow_callback(redeem_update, context))
+
+    assert "兑换成功" in redeem_query.edit_message_text.await_args.kwargs["text"]
+    balance = repo.get_points_balance(-100300, 42)
+    assert balance["balance"] == 20
+
+
+def test_private_transfer_flow_completes_with_callbacks_and_text(tmp_path):
+    repo = make_repo(tmp_path)
+    chat_ref = ChatRef(chat_id=-100301, type=Chat.SUPERGROUP, title="积分群")
+    repo.upsert_chat_user(chat_ref, UserRef(user_id=42, username="alice", is_bot=False, first_name="Alice"))
+    repo.upsert_chat_user(chat_ref, UserRef(user_id=43, username="bob", is_bot=False, first_name="Bob"))
+    repo.adjust_points(chat_id=-100301, user_id=42, amount=30, event_type="admin_adjust", operator="test")
+    bot = SimpleNamespace(send_message=AsyncMock(), username="test_bot")
+    context = SimpleNamespace(
+        application=SimpleNamespace(bot_data={"repo": repo, "user_sessions": {"42": {"recent_chat_id": -100301, "recent_chat_title": "积分群"}}}),
+        bot=bot,
+    )
+
+    start_query = SimpleNamespace(
+        data=f"{USER_FLOW_CALLBACK_PREFIX}pay:start:-100301",
+        answer=AsyncMock(),
+        edit_message_text=AsyncMock(),
+    )
+    start_update = SimpleNamespace(
+        callback_query=start_query,
+        effective_user=SimpleNamespace(id=42, username="alice", full_name="Alice"),
+        effective_chat=SimpleNamespace(id=42, type=Chat.PRIVATE, title=None),
+    )
+    asyncio.run(on_user_flow_callback(start_update, context))
+    assert "转账积分" in start_query.edit_message_text.await_args.kwargs["text"]
+
+    private_reply = AsyncMock()
+    text_update = SimpleNamespace(
+        effective_chat=SimpleNamespace(id=42, type=Chat.PRIVATE, title=None),
+        effective_user=SimpleNamespace(id=42, username="alice", full_name="Alice"),
+        effective_message=SimpleNamespace(text="43"),
+        message=SimpleNamespace(reply_text=private_reply),
+    )
+    asyncio.run(on_private_text(text_update, context))
+
+    amount_query = SimpleNamespace(
+        data=f"{USER_FLOW_CALLBACK_PREFIX}pay:amount:-100301:5",
+        answer=AsyncMock(),
+        edit_message_text=AsyncMock(),
+    )
+    amount_update = SimpleNamespace(
+        callback_query=amount_query,
+        effective_user=SimpleNamespace(id=42, username="alice", full_name="Alice"),
+        effective_chat=SimpleNamespace(id=42, type=Chat.PRIVATE, title=None),
+    )
+    asyncio.run(on_user_flow_callback(amount_update, context))
+    assert "确认转账" in amount_query.edit_message_text.await_args.kwargs["text"]
+
+    confirm_query = SimpleNamespace(
+        data=f"{USER_FLOW_CALLBACK_PREFIX}pay:confirm:-100301:43:5",
+        answer=AsyncMock(),
+        edit_message_text=AsyncMock(),
+    )
+    confirm_update = SimpleNamespace(
+        callback_query=confirm_query,
+        effective_user=SimpleNamespace(id=42, username="alice", full_name="Alice"),
+        effective_chat=SimpleNamespace(id=42, type=Chat.PRIVATE, title=None),
+    )
+    asyncio.run(on_user_flow_callback(confirm_update, context))
+
+    assert "转账成功" in confirm_query.edit_message_text.await_args.kwargs["text"]
+    assert bot.send_message.await_count == 1
+    assert bot.send_message.await_args.kwargs["chat_id"] == 43
+    assert repo.get_points_balance(-100301, 42)["balance"] == 25
+    assert repo.get_points_balance(-100301, 43)["balance"] == 5
