@@ -449,6 +449,12 @@ MIGRATIONS: list[Migration] = [
         CREATE INDEX IF NOT EXISTS idx_lottery_winners_lottery ON chat_lottery_winners(lottery_id, sort_order, id);
         """,
     ),
+    Migration(
+        version="0012_chat_enabled",
+        sql="""
+        ALTER TABLE chat_settings ADD COLUMN chat_enabled INTEGER NOT NULL DEFAULT 1;
+        """,
+    ),
 ]
 
 

@@ -38,6 +38,7 @@ def make_repo(tmp_path) -> BotRepository:
     return BotRepository(
         db,
         defaults={
+            "chat_enabled": False,
             "mode": "balanced",
             "ai_enabled": True,
             "ai_threshold": 0.75,
@@ -103,6 +104,27 @@ def test_group_message_from_admin_still_registers_chat(tmp_path):
     assert any(int(chat["chat_id"]) == -100456 for chat in chats)
 
 
+def test_group_message_ignores_disabled_chat(tmp_path):
+    repo = make_repo(tmp_path)
+    repo.upsert_chat(ChatRef(chat_id=-100457, type=Chat.SUPERGROUP, title="未开放群"))
+    service = SimpleNamespace(decide=AsyncMock())
+    enforcer = SimpleNamespace(apply=AsyncMock())
+    update = SimpleNamespace(
+        effective_chat=SimpleNamespace(id=-100457, type=Chat.SUPERGROUP, title="未开放群"),
+        effective_user=SimpleNamespace(id=42, is_bot=False, username="member", first_name="Member", last_name=None),
+        effective_message=SimpleNamespace(text="hello", caption=None),
+    )
+    context = SimpleNamespace(
+        application=SimpleNamespace(bot_data={"repo": repo, "moderation_service": service, "enforcer": enforcer}),
+        bot=SimpleNamespace(),
+    )
+
+    asyncio.run(on_group_message(update, context))
+
+    assert service.decide.await_count == 0
+    assert enforcer.apply.await_count == 0
+
+
 def test_admin_command_registers_chat_before_permission_check(tmp_path):
     repo = make_repo(tmp_path)
     update = SimpleNamespace(
@@ -124,6 +146,8 @@ def test_admin_command_registers_chat_before_permission_check(tmp_path):
 
 def test_group_message_calls_decide_and_can_reach_ai_flow(tmp_path):
     repo = make_repo(tmp_path)
+    repo.upsert_chat(ChatRef(chat_id=-100990, type=Chat.SUPERGROUP, title="AI群"))
+    repo.update_settings(-100990, {"chat_enabled": True})
     service = SimpleNamespace(
         decide=AsyncMock(
             return_value=ModerationDecision(
@@ -178,7 +202,7 @@ def test_group_message_calls_decide_and_can_reach_ai_flow(tmp_path):
 def test_admin_self_test_runs_audit_but_skips_enforcement(tmp_path):
     repo = make_repo(tmp_path)
     repo.upsert_chat(ChatRef(chat_id=-100991, type=Chat.SUPERGROUP, title="自测群"))
-    repo.update_settings(-100991, {"allow_admin_self_test": True})
+    repo.update_settings(-100991, {"chat_enabled": True, "allow_admin_self_test": True})
     service = SimpleNamespace(
         decide=AsyncMock(
             return_value=ModerationDecision(
@@ -308,6 +332,8 @@ def test_join_verify_timeout_cleans_up_and_kicks_member(tmp_path):
 
 def test_new_chat_members_skips_verification_setup_when_restrict_fails(tmp_path):
     repo = make_repo(tmp_path)
+    repo.upsert_chat(ChatRef(chat_id=-100125, type=Chat.SUPERGROUP, title="验证群"))
+    repo.update_settings(-100125, {"chat_enabled": True})
     update = SimpleNamespace(
         effective_chat=SimpleNamespace(id=-100125, type=Chat.SUPERGROUP, title="验证群"),
         effective_message=SimpleNamespace(

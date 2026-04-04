@@ -35,12 +35,13 @@ class BotRepository:
             )
             conn.execute(
                 """
-                INSERT INTO chat_settings(chat_id, mode, ai_enabled, ai_threshold, allow_admin_self_test, action_policy, rate_limit_policy, language, level3_mute_seconds, updated_at)
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO chat_settings(chat_id, chat_enabled, mode, ai_enabled, ai_threshold, allow_admin_self_test, action_policy, rate_limit_policy, language, level3_mute_seconds, updated_at)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(chat_id) DO NOTHING
                 """,
                 (
                     chat.chat_id,
+                    1 if self.defaults.get("chat_enabled", False) else 0,
                     self.defaults["mode"],
                     1 if self.defaults["ai_enabled"] else 0,
                     self.defaults["ai_threshold"],
@@ -81,6 +82,7 @@ class BotRepository:
             return ChatSettings(chat_id=chat_id, **self.defaults)
         return ChatSettings(
             chat_id=chat_id,
+            chat_enabled=bool(row["chat_enabled"]),
             mode=row["mode"],
             ai_enabled=bool(row["ai_enabled"]),
             ai_threshold=float(row["ai_threshold"]),
@@ -108,13 +110,14 @@ class BotRepository:
             conn.execute(
                 """
                 INSERT INTO chat_settings(
-                  chat_id, mode, ai_enabled, ai_threshold, allow_admin_self_test, action_policy, rate_limit_policy, language,
+                  chat_id, chat_enabled, mode, ai_enabled, ai_threshold, allow_admin_self_test, action_policy, rate_limit_policy, language,
                   level3_mute_seconds, points_enabled, points_message_reward, points_message_cooldown_seconds, points_daily_cap,
                   points_transfer_enabled, points_transfer_min_amount, points_transfer_daily_limit,
                   points_checkin_base_reward, points_checkin_streak_bonus, points_checkin_streak_cap, updated_at
                 )
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(chat_id) DO UPDATE SET
+                  chat_enabled=excluded.chat_enabled,
                   mode=excluded.mode,
                   ai_enabled=excluded.ai_enabled,
                   ai_threshold=excluded.ai_threshold,
@@ -137,6 +140,7 @@ class BotRepository:
                 """,
                 (
                     chat_id,
+                    1 if new["chat_enabled"] else 0,
                     new["mode"],
                     1 if new["ai_enabled"] else 0,
                     float(new["ai_threshold"]),

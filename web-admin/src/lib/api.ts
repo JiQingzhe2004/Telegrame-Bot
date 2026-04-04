@@ -1,5 +1,6 @@
 export type ChatSettings = {
   chat_id: number;
+  chat_enabled: boolean;
   mode: "strict" | "balanced" | "relaxed";
   ai_enabled: boolean;
   ai_threshold: number;

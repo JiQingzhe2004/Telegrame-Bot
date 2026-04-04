@@ -21,6 +21,7 @@ def make_repo(path: Path) -> BotRepository:
     return BotRepository(
         db,
         defaults={
+            "chat_enabled": False,
             "mode": "balanced",
             "ai_enabled": True,
             "ai_threshold": 0.75,

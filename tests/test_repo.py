@@ -13,6 +13,7 @@ def make_repo(path: Path) -> BotRepository:
     return BotRepository(
         db,
         defaults={
+            "chat_enabled": False,
             "mode": "balanced",
             "ai_enabled": True,
             "ai_threshold": 0.75,
@@ -33,6 +34,7 @@ def test_repo_migration_and_basic_ops(tmp_path):
     )
     settings = repo.get_settings(1)
     assert settings.chat_id == 1
+    assert settings.chat_enabled is False
     assert settings.allow_admin_self_test is False
     repo.add_list_item("blacklists", 1, "word", "spam")
     assert "spam" in repo.get_blacklist_words(1)

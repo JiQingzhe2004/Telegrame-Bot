@@ -118,6 +118,7 @@ def make_app_bundle(
     repo = BotRepository(
         db,
         defaults={
+            "chat_enabled": False,
             "mode": "balanced",
             "ai_enabled": True,
             "ai_threshold": 0.75,

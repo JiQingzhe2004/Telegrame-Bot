@@ -44,6 +44,7 @@ class RuntimeManager:
 
     def _apply_repo_defaults(self, conf: RuntimeConfig) -> None:
         self.repo.defaults = {
+            "chat_enabled": False,
             "mode": conf.default_mode,
             "ai_enabled": conf.default_ai_enabled,
             "ai_threshold": conf.default_ai_threshold,

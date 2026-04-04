@@ -23,12 +23,13 @@ type Props = {
 
 type PolicyFormState = Pick<
   ChatSettings,
-  "mode" | "ai_enabled" | "ai_threshold" | "allow_admin_self_test" | "level3_mute_seconds"
+  "chat_enabled" | "mode" | "ai_enabled" | "ai_threshold" | "allow_admin_self_test" | "level3_mute_seconds"
 >;
 
 export function PolicyConfigPanel({ data, actions }: Props) {
   const settings = data.settings;
   const [formState, setFormState] = useState<PolicyFormState>({
+    chat_enabled: false,
     mode: "balanced",
     ai_enabled: true,
     ai_threshold: 0.5,
@@ -39,6 +40,7 @@ export function PolicyConfigPanel({ data, actions }: Props) {
   useEffect(() => {
     if (!settings) return;
     setFormState({
+      chat_enabled: settings.chat_enabled,
       mode: settings.mode,
       ai_enabled: settings.ai_enabled,
       ai_threshold: settings.ai_threshold,
@@ -83,6 +85,19 @@ export function PolicyConfigPanel({ data, actions }: Props) {
               value={formState.ai_threshold}
               onChange={(e) => setFormState((prev) => ({ ...prev, ai_threshold: Number(e.target.value) }))}
             />
+          </div>
+
+          <div className="rounded-xl border bg-muted/20 p-4">
+            <div className="flex items-center justify-between gap-4">
+              <div className="space-y-1">
+                <Label className="text-sm font-semibold">群接入开关</Label>
+                <p className="text-xs text-muted-foreground">关闭后，机器人会保留群记录，但不处理该群的自动审核、入群验证、欢迎语和日常消息链路。</p>
+              </div>
+              <Switch
+                checked={formState.chat_enabled}
+                onCheckedChange={(checked) => setFormState((prev) => ({ ...prev, chat_enabled: checked }))}
+              />
+            </div>
           </div>
 
           <div className="rounded-xl border bg-muted/20 p-4">

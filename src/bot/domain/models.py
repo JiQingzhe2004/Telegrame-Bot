@@ -37,6 +37,7 @@ class MessageRef:
 @dataclass(frozen=True)
 class ChatSettings:
     chat_id: int
+    chat_enabled: bool = False
     mode: str = "balanced"
     ai_enabled: bool = True
     ai_threshold: float = 0.75

@@ -30,6 +30,7 @@ async def async_main() -> None:
     repo = BotRepository(
         db=db,
         defaults={
+            "chat_enabled": False,
             "mode": runtime_conf.default_mode,
             "ai_enabled": runtime_conf.default_ai_enabled,
             "ai_threshold": runtime_conf.default_ai_threshold,
