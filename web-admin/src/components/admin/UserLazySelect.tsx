@@ -19,6 +19,7 @@ type Props = {
   onChange: (value: string) => void;
   placeholder?: string;
   maxSeedOptions?: number;
+  extraOptions?: Array<{ value: string; label: string }>;
 };
 
 export function UserLazySelect({
@@ -27,20 +28,25 @@ export function UserLazySelect({
   onChange,
   placeholder = "支持搜索用户名/ID，也可手输",
   maxSeedOptions = 200,
+  extraOptions = [],
 }: Props) {
   const [open, setOpen] = useState(false);
 
-  const options = useMemo(
-    () =>
-      members.slice(0, maxSeedOptions).map((m) => {
-        const displayName = m.username || `${m.first_name ?? ""} ${m.last_name ?? ""}`.trim() || "未知用户";
-        return {
-          value: String(m.user_id),
-          label: `${displayName} (${m.user_id})`,
-        };
-      }),
-    [members, maxSeedOptions],
-  );
+  const options = useMemo(() => {
+    const memberOptions = members.slice(0, maxSeedOptions).map((m) => {
+      const displayName = m.username || `${m.first_name ?? ""} ${m.last_name ?? ""}`.trim() || "未知用户";
+      return {
+        value: String(m.user_id),
+        label: `${displayName} (${m.user_id})`,
+      };
+    });
+    const seen = new Set<string>();
+    return [...memberOptions, ...extraOptions].filter((item) => {
+      if (seen.has(item.value)) return false;
+      seen.add(item.value);
+      return true;
+    });
+  }, [members, maxSeedOptions, extraOptions]);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

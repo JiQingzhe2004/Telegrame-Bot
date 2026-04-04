@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from bot.domain.models import ChatRef, MessageRef, ModerationContext, UserRef
+from bot.points_service import PointsService
 from bot.runtime_manager import RuntimeManager
 from bot.storage.repo import BotRepository
 from bot.system_config import ConfigService
@@ -45,6 +46,7 @@ class Services:
 def create_http_app(services: Services, webhook_path: str) -> FastAPI:
     backend_version = get_backend_version()
     app = FastAPI(title="telegram-moderator-bot-api", version=backend_version)
+    points_service = PointsService(services.repo)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(services.cors_origins),
@@ -385,6 +387,92 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return ApiEnvelope(ok=True, data=result)
+
+    @app.get("/api/v1/chats/{chat_id}/points/checkin/state", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def get_points_checkin_state(chat_id: int, user_id: int) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        return ApiEnvelope(ok=True, data=points_service.get_checkin_state(chat_id, user_id))
+
+    @app.post("/api/v1/chats/{chat_id}/points/checkin", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def points_checkin(chat_id: int, body: dict[str, Any]) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        try:
+            user_id = int(body.get("user_id", 0))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="invalid_user_id") from exc
+        if not user_id:
+            raise HTTPException(status_code=400, detail="missing_user_id")
+        try:
+            result = points_service.checkin(chat_id, user_id, services.repo.get_settings(chat_id))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return ApiEnvelope(ok=True, data=result)
+
+    @app.get("/api/v1/chats/{chat_id}/points/tasks", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def get_points_tasks(chat_id: int, user_id: int | None = None) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        if user_id is None:
+            return ApiEnvelope(ok=True, data=points_service.list_task_config(chat_id))
+        return ApiEnvelope(ok=True, data=points_service.list_tasks_for_user(chat_id, user_id))
+
+    @app.get("/api/v1/chats/{chat_id}/points/tasks/config", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def get_points_tasks_config(chat_id: int) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        return ApiEnvelope(ok=True, data=points_service.list_task_config(chat_id))
+
+    @app.put("/api/v1/chats/{chat_id}/points/tasks/config", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def put_points_tasks_config(chat_id: int, body: dict[str, Any]) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        items = body.get("items")
+        if not isinstance(items, list):
+            raise HTTPException(status_code=400, detail="invalid_task_items")
+        return ApiEnvelope(ok=True, data=points_service.update_task_config(chat_id, items))
+
+    @app.get("/api/v1/chats/{chat_id}/points/shop", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def get_points_shop(chat_id: int) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        return ApiEnvelope(ok=True, data=points_service.list_shop(chat_id))
+
+    @app.put("/api/v1/chats/{chat_id}/points/shop", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def put_points_shop(chat_id: int, body: dict[str, Any]) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        items = body.get("items")
+        if not isinstance(items, list):
+            raise HTTPException(status_code=400, detail="invalid_shop_items")
+        return ApiEnvelope(ok=True, data=points_service.update_shop(chat_id, items))
+
+    @app.post("/api/v1/chats/{chat_id}/points/redeem", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def post_points_redeem(chat_id: int, body: dict[str, Any]) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        try:
+            user_id = int(body.get("user_id", 0))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="invalid_user_id") from exc
+        item_key = str(body.get("item_key", "")).strip()
+        if not user_id or not item_key:
+            raise HTTPException(status_code=400, detail="missing_redeem_fields")
+        try:
+            result = points_service.redeem(chat_id, user_id, item_key)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return ApiEnvelope(ok=True, data=result)
+
+    @app.get("/api/v1/chats/{chat_id}/points/redemptions", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def get_points_redemptions(chat_id: int, user_id: int | None = None, limit: int = 100) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        data = points_service.list_redemptions(chat_id, user_id=user_id)
+        return ApiEnvelope(ok=True, data=data[:limit])
+
+    @app.post("/api/v1/chats/{chat_id}/points/redemptions/{redemption_id}/status", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def post_points_redemption_status(chat_id: int, redemption_id: int, body: dict[str, Any]) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        status = str(body.get("status", "")).strip().lower()
+        if status not in {"pending", "active", "rejected", "consumed", "expired"}:
+            raise HTTPException(status_code=400, detail="invalid_redemption_status")
+        row = points_service.update_redemption_status(redemption_id, status)
+        if row is None:
+            raise HTTPException(status_code=404, detail="redemption_not_found")
+        return ApiEnvelope(ok=True, data=row)
 
     @app.get("/api/v1/chats/{chat_id}/verification/questions", dependencies=[Depends(require_active), Depends(auth_admin)])
     async def list_verification_questions(chat_id: int, include_global: bool = True) -> ApiEnvelope:

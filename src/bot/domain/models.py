@@ -51,6 +51,10 @@ class ChatSettings:
     points_daily_cap: int = 20
     points_transfer_enabled: bool = True
     points_transfer_min_amount: int = 1
+    points_transfer_daily_limit: int = 10
+    points_checkin_base_reward: int = 3
+    points_checkin_streak_bonus: int = 1
+    points_checkin_streak_cap: int = 7
 
 
 @dataclass(frozen=True)

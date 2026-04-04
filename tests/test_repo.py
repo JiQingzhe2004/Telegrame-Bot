@@ -116,3 +116,19 @@ def test_repo_points_adjust_transfer_and_reward(tmp_path):
     assert leaderboard[0]["user_id"] == 2
     ledger = repo.list_points_ledger(1)
     assert len(ledger) >= 3
+
+
+def test_repo_redemption_status_update(tmp_path):
+    repo = make_repo(tmp_path / "bot.db")
+    redemption = repo.save_redemption(
+        chat_id=1,
+        user_id=2,
+        item_id=3,
+        price_points=10,
+        status="pending",
+        reward_payload='{"title":"积分榜之星"}',
+        expires_at=None,
+    )
+    updated = repo.update_redemption_status(redemption["id"], "active")
+    assert updated is not None
+    assert updated["status"] == "active"

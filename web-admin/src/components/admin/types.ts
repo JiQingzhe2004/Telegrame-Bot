@@ -5,12 +5,16 @@ import type {
   AuditRecord,
   ChatMemberBrief,
   ChatPointsConfig,
+  PointsCheckinState,
   ChatSettings,
   EnforcementRecord,
   ListItem,
   KnownChat,
   PointsBalance,
   PointsLedgerEntry,
+  PointsRedemption,
+  PointsShopItem,
+  PointsTaskDefinition,
 } from "@/lib/api";
 
 export type AdminDataBundle = {
@@ -22,6 +26,11 @@ export type AdminDataBundle = {
   whitelist: ListItem[];
   blacklist: ListItem[];
   pointsConfig?: ChatPointsConfig;
+  pointsCheckinState?: PointsCheckinState;
+  pointsTasks: PointsTaskDefinition[];
+  pointsTaskConfig: PointsTaskDefinition[];
+  pointsShop: PointsShopItem[];
+  pointsRedemptions: PointsRedemption[];
   pointsLeaderboard: PointsBalance[];
   pointsLedger: PointsLedgerEntry[];
   audits: AuditRecord[];

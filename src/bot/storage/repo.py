@@ -95,6 +95,10 @@ class BotRepository:
             points_daily_cap=int(row["points_daily_cap"]),
             points_transfer_enabled=bool(row["points_transfer_enabled"]),
             points_transfer_min_amount=int(row["points_transfer_min_amount"]),
+            points_transfer_daily_limit=int(row["points_transfer_daily_limit"]),
+            points_checkin_base_reward=int(row["points_checkin_base_reward"]),
+            points_checkin_streak_bonus=int(row["points_checkin_streak_bonus"]),
+            points_checkin_streak_cap=int(row["points_checkin_streak_cap"]),
         )
 
     def update_settings(self, chat_id: int, payload: dict[str, Any]) -> None:
@@ -106,9 +110,10 @@ class BotRepository:
                 INSERT INTO chat_settings(
                   chat_id, mode, ai_enabled, ai_threshold, allow_admin_self_test, action_policy, rate_limit_policy, language,
                   level3_mute_seconds, points_enabled, points_message_reward, points_message_cooldown_seconds, points_daily_cap,
-                  points_transfer_enabled, points_transfer_min_amount, updated_at
+                  points_transfer_enabled, points_transfer_min_amount, points_transfer_daily_limit,
+                  points_checkin_base_reward, points_checkin_streak_bonus, points_checkin_streak_cap, updated_at
                 )
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(chat_id) DO UPDATE SET
                   mode=excluded.mode,
                   ai_enabled=excluded.ai_enabled,
@@ -124,6 +129,10 @@ class BotRepository:
                   points_daily_cap=excluded.points_daily_cap,
                   points_transfer_enabled=excluded.points_transfer_enabled,
                   points_transfer_min_amount=excluded.points_transfer_min_amount,
+                  points_transfer_daily_limit=excluded.points_transfer_daily_limit,
+                  points_checkin_base_reward=excluded.points_checkin_base_reward,
+                  points_checkin_streak_bonus=excluded.points_checkin_streak_bonus,
+                  points_checkin_streak_cap=excluded.points_checkin_streak_cap,
                   updated_at=excluded.updated_at
                 """,
                 (
@@ -142,6 +151,10 @@ class BotRepository:
                     int(new["points_daily_cap"]),
                     1 if new["points_transfer_enabled"] else 0,
                     int(new["points_transfer_min_amount"]),
+                    int(new["points_transfer_daily_limit"]),
+                    int(new["points_checkin_base_reward"]),
+                    int(new["points_checkin_streak_bonus"]),
+                    int(new["points_checkin_streak_cap"]),
                     to_iso(utc_now()),
                 ),
             )
@@ -474,6 +487,21 @@ class BotRepository:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_points_transfer_count_today(self, chat_id: int, user_id: int) -> int:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS c
+                FROM chat_points_ledger
+                WHERE chat_id = ?
+                  AND user_id = ?
+                  AND event_type = 'transfer_out'
+                  AND date(created_at) = date('now')
+                """,
+                (chat_id, user_id),
+            ).fetchone()
+        return int(row["c"]) if row else 0
+
     def list_points_ledger(self, chat_id: int, limit: int = 100, user_id: int | None = None) -> list[dict[str, Any]]:
         with self.db.connect() as conn:
             if user_id is None:
@@ -646,6 +674,323 @@ class BotRepository:
             counterparty_user_id=from_user_id,
         )
         return {"from": debit, "to": credit}
+
+    def get_checkin_state(self, chat_id: int, user_id: int) -> dict[str, Any]:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT chat_id, user_id, streak_days, last_checkin_date, created_at, updated_at
+                FROM chat_points_checkins
+                WHERE chat_id = ? AND user_id = ?
+                """,
+                (chat_id, user_id),
+            ).fetchone()
+        if row:
+            return dict(row)
+        now = to_iso(utc_now())
+        return {
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "streak_days": 0,
+            "last_checkin_date": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+
+    def save_checkin_state(self, chat_id: int, user_id: int, streak_days: int, last_checkin_date: str) -> dict[str, Any]:
+        now = to_iso(utc_now())
+        with self.db.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO chat_points_checkins(chat_id, user_id, streak_days, last_checkin_date, created_at, updated_at)
+                VALUES(?, ?, ?, ?, ?, ?)
+                ON CONFLICT(chat_id, user_id) DO UPDATE SET
+                  streak_days=excluded.streak_days,
+                  last_checkin_date=excluded.last_checkin_date,
+                  updated_at=excluded.updated_at
+                """,
+                (chat_id, user_id, streak_days, last_checkin_date, now, now),
+            )
+        return self.get_checkin_state(chat_id, user_id)
+
+    def upsert_points_task(
+        self,
+        *,
+        chat_id: int,
+        task_key: str,
+        title: str,
+        description: str,
+        task_type: str,
+        target_value: int,
+        reward_points: int,
+        period: str = "daily",
+        enabled: bool = True,
+    ) -> None:
+        now = to_iso(utc_now())
+        with self.db.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO chat_points_tasks(chat_id, task_key, title, description, task_type, target_value, reward_points, period, enabled, created_at, updated_at)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(chat_id, task_key) DO UPDATE SET
+                  title=excluded.title,
+                  description=excluded.description,
+                  task_type=excluded.task_type,
+                  target_value=excluded.target_value,
+                  reward_points=excluded.reward_points,
+                  period=excluded.period,
+                  enabled=excluded.enabled,
+                  updated_at=excluded.updated_at
+                """,
+                (chat_id, task_key, title, description, task_type, target_value, reward_points, period, 1 if enabled else 0, now, now),
+            )
+
+    def list_points_tasks(self, chat_id: int) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, chat_id, task_key, title, description, task_type, target_value, reward_points, period, enabled, created_at, updated_at
+                FROM chat_points_tasks
+                WHERE chat_id = ?
+                ORDER BY id ASC
+                """,
+                (chat_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_points_task(self, chat_id: int, task_key: str) -> dict[str, Any] | None:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, chat_id, task_key, title, description, task_type, target_value, reward_points, period, enabled, created_at, updated_at
+                FROM chat_points_tasks
+                WHERE chat_id = ? AND task_key = ?
+                """,
+                (chat_id, task_key),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_task_progress(self, chat_id: int, user_id: int, task_id: int, period_key: str) -> dict[str, Any]:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT chat_id, user_id, task_id, period_key, progress_value, completed, reward_claimed, updated_at
+                FROM chat_points_task_progress
+                WHERE chat_id = ? AND user_id = ? AND task_id = ? AND period_key = ?
+                """,
+                (chat_id, user_id, task_id, period_key),
+            ).fetchone()
+        if row:
+            return dict(row)
+        return {
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "task_id": task_id,
+            "period_key": period_key,
+            "progress_value": 0,
+            "completed": 0,
+            "reward_claimed": 0,
+            "updated_at": to_iso(utc_now()),
+        }
+
+    def save_task_progress(
+        self,
+        *,
+        chat_id: int,
+        user_id: int,
+        task_id: int,
+        period_key: str,
+        progress_value: int,
+        completed: bool,
+        reward_claimed: bool,
+    ) -> dict[str, Any]:
+        now = to_iso(utc_now())
+        with self.db.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO chat_points_task_progress(chat_id, user_id, task_id, period_key, progress_value, completed, reward_claimed, updated_at)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(chat_id, user_id, task_id, period_key) DO UPDATE SET
+                  progress_value=excluded.progress_value,
+                  completed=excluded.completed,
+                  reward_claimed=excluded.reward_claimed,
+                  updated_at=excluded.updated_at
+                """,
+                (chat_id, user_id, task_id, period_key, progress_value, 1 if completed else 0, 1 if reward_claimed else 0, now),
+            )
+        return self.get_task_progress(chat_id, user_id, task_id, period_key)
+
+    def list_points_task_progress(self, chat_id: int, period_key: str, user_id: int | None = None) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            if user_id is None:
+                rows = conn.execute(
+                    """
+                    SELECT chat_id, user_id, task_id, period_key, progress_value, completed, reward_claimed, updated_at
+                    FROM chat_points_task_progress
+                    WHERE chat_id = ? AND period_key = ?
+                    ORDER BY updated_at DESC
+                    """,
+                    (chat_id, period_key),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT chat_id, user_id, task_id, period_key, progress_value, completed, reward_claimed, updated_at
+                    FROM chat_points_task_progress
+                    WHERE chat_id = ? AND user_id = ? AND period_key = ?
+                    ORDER BY updated_at DESC
+                    """,
+                    (chat_id, user_id, period_key),
+                ).fetchall()
+        return [dict(r) for r in rows]
+
+    def upsert_shop_item(
+        self,
+        *,
+        chat_id: int,
+        item_key: str,
+        title: str,
+        description: str,
+        item_type: str,
+        price_points: int,
+        stock: int | None,
+        enabled: bool,
+        meta_json: str | None,
+    ) -> None:
+        now = to_iso(utc_now())
+        with self.db.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO chat_points_shop_items(chat_id, item_key, title, description, item_type, price_points, stock, enabled, meta_json, created_at, updated_at)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(chat_id, item_key) DO UPDATE SET
+                  title=excluded.title,
+                  description=excluded.description,
+                  item_type=excluded.item_type,
+                  price_points=excluded.price_points,
+                  stock=excluded.stock,
+                  enabled=excluded.enabled,
+                  meta_json=excluded.meta_json,
+                  updated_at=excluded.updated_at
+                """,
+                (chat_id, item_key, title, description, item_type, price_points, stock, 1 if enabled else 0, meta_json, now, now),
+            )
+
+    def list_shop_items(self, chat_id: int) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, chat_id, item_key, title, description, item_type, price_points, stock, enabled, meta_json, created_at, updated_at
+                FROM chat_points_shop_items
+                WHERE chat_id = ?
+                ORDER BY id ASC
+                """,
+                (chat_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_shop_item(self, chat_id: int, item_key: str) -> dict[str, Any] | None:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, chat_id, item_key, title, description, item_type, price_points, stock, enabled, meta_json, created_at, updated_at
+                FROM chat_points_shop_items
+                WHERE chat_id = ? AND item_key = ?
+                """,
+                (chat_id, item_key),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def save_redemption(
+        self,
+        *,
+        chat_id: int,
+        user_id: int,
+        item_id: int,
+        price_points: int,
+        status: str,
+        reward_payload: str | None,
+        expires_at: str | None,
+    ) -> dict[str, Any]:
+        now = to_iso(utc_now())
+        with self.db.connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO chat_points_redemptions(chat_id, user_id, item_id, price_points, status, reward_payload, expires_at, created_at)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (chat_id, user_id, item_id, price_points, status, reward_payload, expires_at, now),
+            )
+            row = conn.execute(
+                """
+                SELECT id, chat_id, user_id, item_id, price_points, status, reward_payload, expires_at, created_at
+                FROM chat_points_redemptions
+                WHERE id = ?
+                """,
+                (int(cur.lastrowid),),
+            ).fetchone()
+        return dict(row)
+
+    def list_redemptions(self, chat_id: int, user_id: int | None = None, limit: int = 100) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            if user_id is None:
+                rows = conn.execute(
+                    """
+                    SELECT id, chat_id, user_id, item_id, price_points, status, reward_payload, expires_at, created_at
+                    FROM chat_points_redemptions
+                    WHERE chat_id = ?
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (chat_id, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT id, chat_id, user_id, item_id, price_points, status, reward_payload, expires_at, created_at
+                    FROM chat_points_redemptions
+                    WHERE chat_id = ? AND user_id = ?
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (chat_id, user_id, limit),
+                ).fetchall()
+        return [dict(r) for r in rows]
+
+    def update_redemption_status(self, redemption_id: int, status: str) -> dict[str, Any] | None:
+        with self.db.connect() as conn:
+            conn.execute(
+                "UPDATE chat_points_redemptions SET status = ? WHERE id = ?",
+                (status, redemption_id),
+            )
+            row = conn.execute(
+                """
+                SELECT id, chat_id, user_id, item_id, price_points, status, reward_payload, expires_at, created_at
+                FROM chat_points_redemptions
+                WHERE id = ?
+                """,
+                (redemption_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_active_welcome_bonus(self, chat_id: int, user_id: int) -> dict[str, Any] | None:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT r.id, r.reward_payload, r.expires_at, s.item_key, s.item_type
+                FROM chat_points_redemptions r
+                JOIN chat_points_shop_items s ON s.id = r.item_id
+                WHERE r.chat_id = ?
+                  AND r.user_id = ?
+                  AND r.status = 'active'
+                  AND s.item_type = 'welcome_bonus'
+                  AND (r.expires_at IS NULL OR r.expires_at > ?)
+                ORDER BY r.id DESC
+                LIMIT 1
+                """,
+                (chat_id, user_id, to_iso(utc_now())),
+            ).fetchone()
+        return dict(row) if row else None
 
     def list_chats(self, limit: int = 200) -> list[dict[str, Any]]:
         with self.db.connect() as conn:

@@ -408,3 +408,27 @@ def test_points_endpoints(tmp_path):
     ledger = client.get("/api/v1/chats/1/points/ledger", headers={"X-Admin-Token": "admin-token"})
     assert ledger.status_code == 200
     assert ledger.json()["data"][0]["event_type"] == "admin_adjust"
+
+
+def test_points_redemption_status_endpoint(tmp_path):
+    app, repo, _ = make_app_bundle(tmp_path)
+    repo.upsert_chat(ChatRef(chat_id=1, type="supergroup", title="积分群"))
+    redemption = repo.save_redemption(
+        chat_id=1,
+        user_id=2,
+        item_id=3,
+        price_points=10,
+        status="pending",
+        reward_payload='{"title":"积分榜之星"}',
+        expires_at=None,
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        f"/api/v1/chats/1/points/redemptions/{redemption['id']}/status",
+        headers={"X-Admin-Token": "admin-token"},
+        json={"status": "active"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["status"] == "active"

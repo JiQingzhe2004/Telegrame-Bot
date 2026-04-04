@@ -373,7 +373,7 @@ def test_points_cmd_sends_private_balance_instead_of_group_balance(tmp_path):
     assert args["chat_id"] == 42
     assert "当前余额：8" in args["text"]
     group_reply.assert_awaited_once()
-    assert "已私聊发送" in group_reply.await_args.args[0]
+    assert "积分明细已私聊发送" in group_reply.await_args.args[0]
 
 
 def test_points_self_callback_only_allows_self(tmp_path):
@@ -427,6 +427,11 @@ def test_register_bot_commands_sets_private_group_and_admin_scopes():
     asyncio.run(_register_bot_commands(app))
 
     assert bot.set_my_commands.await_count == 3
+    group_commands = bot.set_my_commands.await_args_list[1].args[0]
+    assert any(command.command == "checkin" for command in group_commands)
+    assert any(command.command == "tasks" for command in group_commands)
+    assert any(command.command == "shop" for command in group_commands)
+    assert any(command.command == "redeem" for command in group_commands)
 
 
 def test_pay_cmd_sends_private_notice_to_recipient(tmp_path):
@@ -457,4 +462,43 @@ def test_pay_cmd_sends_private_notice_to_recipient(tmp_path):
 
     assert bot.send_message.await_count == 1
     assert bot.send_message.await_args.kwargs["chat_id"] == 43
+    assert "积分到账通知" in bot.send_message.await_args.kwargs["text"]
     assert "到账积分：3" in bot.send_message.await_args.kwargs["text"]
+
+
+def test_points_cmd_private_chat_no_longer_loops_back_to_group(tmp_path):
+    repo = make_repo(tmp_path)
+    reply_text = AsyncMock()
+    update = SimpleNamespace(
+        effective_chat=SimpleNamespace(id=42, type=Chat.PRIVATE, title=None),
+        effective_user=SimpleNamespace(id=42, username="alice"),
+        message=SimpleNamespace(reply_text=reply_text),
+    )
+    context = SimpleNamespace(application=SimpleNamespace(bot_data={"repo": repo}), bot=SimpleNamespace(username="test_bot"))
+
+    asyncio.run(points_cmd(update, context))
+
+    reply_text.assert_awaited_once()
+    assert "这里是机器人私聊窗口" in reply_text.await_args.args[0]
+
+
+def test_points_cmd_group_failure_includes_private_link_button(tmp_path):
+    repo = make_repo(tmp_path)
+    repo.upsert_chat_user(
+        ChatRef(chat_id=-100204, type=Chat.SUPERGROUP, title="积分群"),
+        UserRef(user_id=42, username="alice", is_bot=False, first_name="Alice"),
+    )
+    reply_text = AsyncMock()
+    bot = SimpleNamespace(send_message=AsyncMock(side_effect=TelegramError("private blocked")), username="test_bot")
+    update = SimpleNamespace(
+        effective_chat=SimpleNamespace(id=-100204, type=Chat.SUPERGROUP, title="积分群"),
+        effective_user=SimpleNamespace(id=42, username="alice"),
+        message=SimpleNamespace(reply_text=reply_text),
+    )
+    context = SimpleNamespace(application=SimpleNamespace(bot_data={"repo": repo}), bot=bot)
+
+    asyncio.run(points_cmd(update, context))
+
+    reply_text.assert_awaited_once()
+    markup = reply_text.await_args.kwargs["reply_markup"]
+    assert markup.inline_keyboard[0][0].url.endswith("start=points_-100204")

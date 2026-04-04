@@ -14,6 +14,10 @@ export type ChatSettings = {
   points_daily_cap: number;
   points_transfer_enabled: boolean;
   points_transfer_min_amount: number;
+  points_transfer_daily_limit: number;
+  points_checkin_base_reward: number;
+  points_checkin_streak_bonus: number;
+  points_checkin_streak_cap: number;
 };
 
 export type ChatPointsConfig = Pick<
@@ -24,6 +28,10 @@ export type ChatPointsConfig = Pick<
   | "points_daily_cap"
   | "points_transfer_enabled"
   | "points_transfer_min_amount"
+  | "points_transfer_daily_limit"
+  | "points_checkin_base_reward"
+  | "points_checkin_streak_bonus"
+  | "points_checkin_streak_cap"
 >;
 
 type ApiEnvelope<T> = {
@@ -231,6 +239,58 @@ export type PointsLedgerEntry = {
   event_type: string;
   reason: string | null;
   operator: string;
+  created_at: string;
+};
+
+export type PointsCheckinState = {
+  chat_id: number;
+  user_id: number;
+  streak_days: number;
+  last_checkin_date: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PointsTaskDefinition = {
+  id: number;
+  chat_id: number;
+  task_key: string;
+  title: string;
+  description: string;
+  task_type: string;
+  target_value: number;
+  reward_points: number;
+  period: string;
+  enabled: boolean;
+  progress_value?: number;
+  completed?: boolean;
+  reward_claimed?: boolean;
+};
+
+export type PointsShopItem = {
+  id: number;
+  chat_id: number;
+  item_key: string;
+  title: string;
+  description: string;
+  item_type: string;
+  price_points: number;
+  stock: number | null;
+  enabled: boolean;
+  meta_json: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PointsRedemption = {
+  id: number;
+  chat_id: number;
+  user_id: number;
+  item_id: number;
+  price_points: number;
+  status: string;
+  reward_payload: string | null;
+  expires_at: string | null;
   created_at: string;
 };
 
@@ -489,6 +549,78 @@ export class ApiClient {
       method: "POST",
       headers: this.adminHeaders(adminToken),
       body: JSON.stringify(payload),
+    });
+  }
+
+  getPointsCheckinState(chatId: string, adminToken: string, userId: string) {
+    return this.request<PointsCheckinState>(`/api/v1/chats/${chatId}/points/checkin/state?user_id=${encodeURIComponent(userId)}`, {
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  checkinUser(chatId: string, adminToken: string, userId: string) {
+    return this.request<{ reward_points: number; streak_days: number; balance_after: number }>(`/api/v1/chats/${chatId}/points/checkin`, {
+      method: "POST",
+      headers: this.adminHeaders(adminToken),
+      body: JSON.stringify({ user_id: userId }),
+    });
+  }
+
+  getPointsTasks(chatId: string, adminToken: string, userId?: string) {
+    const query = userId ? `?user_id=${encodeURIComponent(userId)}` : "";
+    return this.request<PointsTaskDefinition[]>(`/api/v1/chats/${chatId}/points/tasks${query}`, {
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  getPointsTaskConfig(chatId: string, adminToken: string) {
+    return this.request<PointsTaskDefinition[]>(`/api/v1/chats/${chatId}/points/tasks/config`, {
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  updatePointsTaskConfig(chatId: string, adminToken: string, items: PointsTaskDefinition[]) {
+    return this.request<PointsTaskDefinition[]>(`/api/v1/chats/${chatId}/points/tasks/config`, {
+      method: "PUT",
+      headers: this.adminHeaders(adminToken),
+      body: JSON.stringify({ items }),
+    });
+  }
+
+  getPointsShop(chatId: string, adminToken: string) {
+    return this.request<PointsShopItem[]>(`/api/v1/chats/${chatId}/points/shop`, {
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  updatePointsShop(chatId: string, adminToken: string, items: PointsShopItem[]) {
+    return this.request<PointsShopItem[]>(`/api/v1/chats/${chatId}/points/shop`, {
+      method: "PUT",
+      headers: this.adminHeaders(adminToken),
+      body: JSON.stringify({ items }),
+    });
+  }
+
+  redeemPointsItem(chatId: string, adminToken: string, payload: { user_id: string; item_key: string }) {
+    return this.request<{ redemption: PointsRedemption; balance_after: number; item: PointsShopItem }>(`/api/v1/chats/${chatId}/points/redeem`, {
+      method: "POST",
+      headers: this.adminHeaders(adminToken),
+      body: JSON.stringify(payload),
+    });
+  }
+
+  getPointsRedemptions(chatId: string, adminToken: string, userId?: string) {
+    const query = userId ? `?user_id=${encodeURIComponent(userId)}` : "";
+    return this.request<PointsRedemption[]>(`/api/v1/chats/${chatId}/points/redemptions${query}`, {
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  updatePointsRedemptionStatus(chatId: string, adminToken: string, redemptionId: number, status: string) {
+    return this.request<PointsRedemption>(`/api/v1/chats/${chatId}/points/redemptions/${redemptionId}/status`, {
+      method: "POST",
+      headers: this.adminHeaders(adminToken),
+      body: JSON.stringify({ status }),
     });
   }
 

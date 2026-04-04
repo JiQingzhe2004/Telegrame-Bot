@@ -15,6 +15,14 @@ export const queryKeys = {
   pointsConfig: (baseUrl: string, chatId: string, adminToken: string) => ["pointsConfig", baseUrl, chatId, adminToken] as const,
   pointsBalance: (baseUrl: string, chatId: string, userId: string, adminToken: string) =>
     ["pointsBalance", baseUrl, chatId, userId, adminToken] as const,
+  pointsCheckinState: (baseUrl: string, chatId: string, userId: string, adminToken: string) =>
+    ["pointsCheckinState", baseUrl, chatId, userId, adminToken] as const,
+  pointsTasks: (baseUrl: string, chatId: string, userId: string, adminToken: string) =>
+    ["pointsTasks", baseUrl, chatId, userId, adminToken] as const,
+  pointsTaskConfig: (baseUrl: string, chatId: string, adminToken: string) => ["pointsTaskConfig", baseUrl, chatId, adminToken] as const,
+  pointsShop: (baseUrl: string, chatId: string, adminToken: string) => ["pointsShop", baseUrl, chatId, adminToken] as const,
+  pointsRedemptions: (baseUrl: string, chatId: string, userId: string, adminToken: string) =>
+    ["pointsRedemptions", baseUrl, chatId, userId, adminToken] as const,
   pointsLeaderboard: (baseUrl: string, chatId: string, adminToken: string) => ["pointsLeaderboard", baseUrl, chatId, adminToken] as const,
   pointsLedger: (baseUrl: string, chatId: string, userId: string, adminToken: string) =>
     ["pointsLedger", baseUrl, chatId, userId, adminToken] as const,

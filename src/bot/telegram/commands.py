@@ -7,11 +7,20 @@ from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 from bot.domain.models import ChatRef
+from bot.points_service import PointsService
 from bot.telegram.permissions import is_admin
 
 
 def _repo(ctx: ContextTypes.DEFAULT_TYPE):
     return ctx.application.bot_data["repo"]
+
+
+def _points_service(ctx: ContextTypes.DEFAULT_TYPE):
+    service = ctx.application.bot_data.get("points_service")
+    if service is None:
+        service = PointsService(_repo(ctx))
+        ctx.application.bot_data["points_service"] = service
+    return service
 
 
 def _remember_group_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -26,22 +35,40 @@ def _remember_group_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 POINTS_SELF_CALLBACK_PREFIX = "points:self:"
 
 
+def _display_name(first_name: str | None, last_name: str | None, username: str | None, fallback: str | int) -> str:
+    return " ".join(x for x in [first_name, last_name] if x).strip() or username or str(fallback)
+
+
 def _points_private_message(balance: dict, chat_title: str | None) -> str:
-    display_name = " ".join(x for x in [balance.get("first_name"), balance.get("last_name")] if x).strip() or balance.get("username") or str(balance["user_id"])
+    display_name = _display_name(
+        balance.get("first_name"),
+        balance.get("last_name"),
+        balance.get("username"),
+        balance["user_id"],
+    )
     return (
-        f"你的积分账户\n"
+        f"积分账户详情\n"
         f"群聊：{chat_title or balance['chat_id']}\n"
         f"用户：{display_name}\n"
         f"当前余额：{balance['balance']}\n"
-        f"累计收入：{balance['total_earned']}\n"
+        f"累计获得：{balance['total_earned']}\n"
         f"累计支出：{balance['total_spent']}\n"
-        f"最近变更：{balance['last_changed_at']}"
+        f"最近变更：{balance['last_changed_at']}\n\n"
+        f"可在群里继续使用 /rank 查看排行，或用 /pay 给群成员转账。"
     )
 
 
 def points_entry_markup(chat_id: int, user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [[InlineKeyboardButton("查看我的积分", callback_data=f"{POINTS_SELF_CALLBACK_PREFIX}{chat_id}:{user_id}")]]
+    )
+
+
+def deep_link_markup(bot_username: str | None, payload: str, label: str) -> InlineKeyboardMarkup | None:
+    if not bot_username:
+        return None
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton(label, url=f"https://t.me/{bot_username}?start={payload}")]]
     )
 
 
@@ -58,7 +85,7 @@ async def _send_private_transfer_notice(
         await bot.send_message(
             chat_id=to_user_id,
             text=(
-                f"你收到一笔积分转账\n"
+                f"积分到账通知\n"
                 f"群聊：{chat_title or '-'}\n"
                 f"来自：{from_user_label}\n"
                 f"到账积分：{amount}\n"
@@ -82,9 +109,9 @@ async def _send_private_points(
     balance = repo.get_points_balance(chat_id, user_id)
     try:
         await bot.send_message(chat_id=user_id, text=_points_private_message(balance, chat_title))
-        return True, "已私聊发送，请查看机器人私信。"
+        return True, "积分明细已私聊发送，请查看机器人私信。"
     except TelegramError:
-        hint = "请先私聊机器人并发送 /start，然后回群里再试。"
+        hint = "暂时无法私聊发送积分明细。请先打开机器人私聊并发送 /start，然后回群里再试。"
         if username:
             hint += f"\n也可以直接打开：t.me/{username}"
         return False, hint
@@ -93,9 +120,36 @@ async def _send_private_points(
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_message:
         return
+    if update.effective_chat and update.effective_chat.type == Chat.PRIVATE and context.args:
+        payload = context.args[0].strip()
+        if payload.startswith("points_"):
+            try:
+                chat_id = int(payload.removeprefix("points_"))
+            except ValueError:
+                chat_id = 0
+            if chat_id and update.effective_user:
+                success, notice = await _send_private_points(
+                    bot=context.bot,
+                    repo=_repo(context),
+                    chat_id=chat_id,
+                    user_id=update.effective_user.id,
+                    username=getattr(context.bot, "username", None),
+                    chat_title=None,
+                )
+                if success:
+                    await update.effective_message.reply_text("已为你打开当前群的积分详情。")
+                else:
+                    await update.effective_message.reply_text(notice)
+                return
+        if payload.startswith("tasks_"):
+            await update.effective_message.reply_text("任务详情请在群里使用 /tasks 触发，我会继续通过私聊发送。")
+            return
+        if payload.startswith("shop_"):
+            await update.effective_message.reply_text("商品清单请在群里使用 /shop 触发，我会继续通过私聊发送。")
+            return
     await update.effective_message.reply_text(
-        "欢迎使用积分机器人。\n"
-        "先在群里使用 /points、/rank、/pay 等命令。\n"
+        "欢迎使用积分功能。\n"
+        "你可以在群里使用 /points、/rank、/pay 等命令。\n"
         "当你需要私密查看自己的余额时，机器人会把积分详情发送到这个私聊窗口。"
     )
 
@@ -127,7 +181,7 @@ async def ai_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await is_admin(context.bot, update.effective_chat.id, update.effective_user.id):
         return
     if not context.args:
-        await update.message.reply_text("usage: /ai on|off")
+        await update.message.reply_text("用法：/ai on|off")
         return
     enabled = context.args[0].lower() == "on"
     _repo(context).update_settings(update.effective_chat.id, {"ai_enabled": enabled})
@@ -141,7 +195,7 @@ async def threshold_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if not await is_admin(context.bot, update.effective_chat.id, update.effective_user.id):
         return
     if not context.args:
-        await update.message.reply_text("usage: /threshold <0-1>")
+        await update.message.reply_text("用法：/threshold <0-1>")
         return
     v = max(0.0, min(1.0, float(context.args[0])))
     _repo(context).update_settings(update.effective_chat.id, {"ai_threshold": v})
@@ -155,7 +209,7 @@ async def banword_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not await is_admin(context.bot, update.effective_chat.id, update.effective_user.id):
         return
     if len(context.args) < 2 or context.args[0] not in {"add", "del"}:
-        await update.message.reply_text("usage: /banword add|del <word>")
+        await update.message.reply_text("用法：/banword add|del <词>")
         return
     op, word = context.args[0], " ".join(context.args[1:]).strip()
     if op == "add":
@@ -172,7 +226,7 @@ async def whitelist_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if not await is_admin(context.bot, update.effective_chat.id, update.effective_user.id):
         return
     if len(context.args) < 2 or context.args[0] not in {"add", "del"}:
-        await update.message.reply_text("usage: /whitelist add|del <@user|user_id>")
+        await update.message.reply_text("用法：/whitelist add|del <@用户名|用户ID>")
         return
     op, value = context.args[0], context.args[1]
     if op == "add":
@@ -189,7 +243,7 @@ async def forgive_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not await is_admin(context.bot, update.effective_chat.id, update.effective_user.id):
         return
     if not context.args:
-        await update.message.reply_text("usage: /forgive <user_id>")
+        await update.message.reply_text("用法：/forgive <用户ID>")
         return
     uid = int(context.args[0].replace("@", ""))
     _repo(context).forgive(update.effective_chat.id, uid)
@@ -202,7 +256,7 @@ async def appeal_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     _remember_group_chat(update, context)
     reason = " ".join(context.args).strip() if context.args else ""
     if not reason:
-        await update.message.reply_text("usage: /appeal <reason>")
+        await update.message.reply_text("用法：/appeal <申诉理由>")
         return
     aid = _repo(context).add_appeal(update.effective_chat.id, update.effective_user.id, reason)
     await update.message.reply_text(f"appeal logged: {aid}")
@@ -211,8 +265,10 @@ async def appeal_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 async def points_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_chat or not update.effective_user:
         return
+    if update.effective_chat.type == Chat.PRIVATE:
+        await update.message.reply_text("这里是机器人私聊窗口。请从群里点击“查看我的积分”按钮，或在群里再次发送 /points 触发对应群的积分详情。")
+        return
     if update.effective_chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
-        await update.message.reply_text("请在群里使用 /points，机器人会把余额私聊发给你。")
         return
     _remember_group_chat(update, context)
     success, notice = await _send_private_points(
@@ -229,7 +285,10 @@ async def points_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             reply_markup=points_entry_markup(update.effective_chat.id, update.effective_user.id),
         )
     else:
-        await update.message.reply_text(notice)
+        await update.message.reply_text(
+            notice,
+            reply_markup=deep_link_markup(getattr(context.bot, "username", None), f"points_{update.effective_chat.id}", "打开机器人私聊"),
+        )
 
 
 async def rank_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -238,12 +297,14 @@ async def rank_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     _remember_group_chat(update, context)
     rows = _repo(context).list_points_leaderboard(update.effective_chat.id, limit=10)
     if not rows:
-        await update.message.reply_text("当前还没有积分记录。")
+        await update.message.reply_text("当前群还没有积分记录。")
         return
-    lines = ["本群积分排行榜："]
+    lines = ["积分排行榜（前 10）"]
     for idx, row in enumerate(rows, start=1):
-        display_name = " ".join(x for x in [row.get("first_name"), row.get("last_name")] if x).strip() or row.get("username") or row["user_id"]
-        lines.append(f"{idx}. {display_name} - {row['balance']}")
+        display_name = _display_name(row.get("first_name"), row.get("last_name"), row.get("username"), row["user_id"])
+        lines.append(f"{idx}. {display_name}：{row['balance']}")
+    lines.append("")
+    lines.append("可使用 /points 私密查看自己的余额。")
     await update.message.reply_text(
         "\n".join(lines),
         reply_markup=points_entry_markup(update.effective_chat.id, update.effective_user.id) if update.effective_user else None,
@@ -256,19 +317,19 @@ async def pay_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     _remember_group_chat(update, context)
     settings = _repo(context).get_settings(update.effective_chat.id)
     if not settings.points_transfer_enabled:
-        await update.message.reply_text("当前群已关闭积分转账。")
+        await update.message.reply_text("当前群已关闭积分转账功能。")
         return
     if len(context.args) < 2:
-        await update.message.reply_text("usage: /pay <user_id|@username> <amount>")
+        await update.message.reply_text("用法：/pay <用户ID或@用户名> <积分数量>")
         return
     raw_target = context.args[0].strip()
     try:
         amount = int(context.args[1])
     except ValueError:
-        await update.message.reply_text("amount must be integer")
+        await update.message.reply_text("积分数量必须是整数。")
         return
     if amount < settings.points_transfer_min_amount:
-        await update.message.reply_text(f"最小转账金额为 {settings.points_transfer_min_amount}")
+        await update.message.reply_text(f"最小转账金额为 {settings.points_transfer_min_amount} 积分。")
         return
     if raw_target.startswith("@"):
         target_value = raw_target
@@ -281,22 +342,31 @@ async def pay_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         try:
             target_user_id = int(raw_target)
         except ValueError:
-            await update.message.reply_text("target must be user_id or @username")
+            await update.message.reply_text("目标用户必须是用户 ID 或 @用户名。")
             return
     try:
-        result = _repo(context).transfer_points(
-            chat_id=update.effective_chat.id,
-            from_user_id=update.effective_user.id,
-            to_user_id=target_user_id,
-            amount=amount,
-            operator="telegram_command",
-            reason="user_transfer",
+        result = _points_service(context).transfer_points(
+            update.effective_chat.id,
+            update.effective_user.id,
+            target_user_id,
+            amount,
+            settings,
+            "telegram_command",
         )
     except ValueError as exc:
-        await update.message.reply_text(str(exc))
+        messages = {
+            "transfer_amount_must_be_positive": "转账金额必须大于 0。",
+            "cannot_transfer_to_self": "不能给自己转账。",
+            "insufficient_points": "积分不足，无法完成转账。",
+            "transfer_daily_limit_reached": f"你今天的转账次数已达上限（{settings.points_transfer_daily_limit} 次）。",
+        }
+        await update.message.reply_text(messages.get(str(exc), "转账失败，请检查输入后重试。"))
         return
     await update.message.reply_text(
-        f"转账成功：{amount}\n你的新余额：{result['from']['balance_after']}\n对方余额：{result['to']['balance_after']}",
+        f"转账成功\n"
+        f"转出积分：{amount}\n"
+        f"你的当前余额：{result['from']['balance_after']}\n"
+        f"对方当前余额：{result['to']['balance_after']}",
         reply_markup=points_entry_markup(update.effective_chat.id, update.effective_user.id),
     )
     from_user_label = update.effective_user.full_name or update.effective_user.username or str(update.effective_user.id)
@@ -317,16 +387,16 @@ async def points_add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not await is_admin(context.bot, update.effective_chat.id, update.effective_user.id):
         return
     if len(context.args) < 2:
-        await update.message.reply_text("usage: /points_add <user_id> <amount>")
+        await update.message.reply_text("用法：/points_add <用户ID> <积分数量>")
         return
     try:
         user_id = int(context.args[0])
         amount = int(context.args[1])
     except ValueError:
-        await update.message.reply_text("user_id / amount must be integer")
+        await update.message.reply_text("用户 ID 和积分数量都必须是整数。")
         return
     if amount <= 0:
-        await update.message.reply_text("amount must be positive")
+        await update.message.reply_text("加分数量必须大于 0。")
         return
     result = _repo(context).adjust_points(
         chat_id=update.effective_chat.id,
@@ -336,7 +406,7 @@ async def points_add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         operator="telegram_admin",
         reason="admin_add",
     )
-    await update.message.reply_text(f"已加分：{amount}，当前余额：{result['balance_after']}")
+    await update.message.reply_text(f"加分成功\n调整积分：+{amount}\n当前余额：{result['balance_after']}")
 
 
 async def points_sub_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -346,16 +416,16 @@ async def points_sub_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not await is_admin(context.bot, update.effective_chat.id, update.effective_user.id):
         return
     if len(context.args) < 2:
-        await update.message.reply_text("usage: /points_sub <user_id> <amount>")
+        await update.message.reply_text("用法：/points_sub <用户ID> <积分数量>")
         return
     try:
         user_id = int(context.args[0])
         amount = int(context.args[1])
     except ValueError:
-        await update.message.reply_text("user_id / amount must be integer")
+        await update.message.reply_text("用户 ID 和积分数量都必须是整数。")
         return
     if amount <= 0:
-        await update.message.reply_text("amount must be positive")
+        await update.message.reply_text("扣分数量必须大于 0。")
         return
     try:
         result = _repo(context).adjust_points(
@@ -367,6 +437,115 @@ async def points_sub_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             reason="admin_sub",
         )
     except ValueError as exc:
-        await update.message.reply_text(str(exc))
+        if str(exc) == "insufficient_points":
+            await update.message.reply_text("积分不足，无法继续扣减。")
+        else:
+            await update.message.reply_text("扣分失败，请稍后重试。")
         return
-    await update.message.reply_text(f"已扣分：{amount}，当前余额：{result['balance_after']}")
+    await update.message.reply_text(f"扣分成功\n调整积分：-{amount}\n当前余额：{result['balance_after']}")
+
+
+async def checkin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.effective_chat or not update.effective_user:
+        return
+    if update.effective_chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
+        await update.message.reply_text("请在群里使用 /checkin 完成签到。")
+        return
+    _remember_group_chat(update, context)
+    settings = _repo(context).get_settings(update.effective_chat.id)
+    try:
+        result = _points_service(context).checkin(update.effective_chat.id, update.effective_user.id, settings)
+    except ValueError as exc:
+        if str(exc) == "already_checked_in_today":
+            await update.message.reply_text("你今天已经签到过了。")
+        else:
+            await update.message.reply_text("签到失败，请稍后重试。")
+        return
+    detail = (
+        f"签到成功\n"
+        f"本次奖励：{result['reward_points']} 积分\n"
+        f"连续签到：{result['streak_days']} 天\n"
+        f"当前余额：{result['balance_after']}"
+    )
+    try:
+        await context.bot.send_message(chat_id=update.effective_user.id, text=detail)
+        await update.message.reply_text("签到成功，详情已私聊发送。", reply_markup=points_entry_markup(update.effective_chat.id, update.effective_user.id))
+    except TelegramError:
+        await update.message.reply_text("签到成功。请先私聊机器人发送 /start，之后可收到详细签到通知。")
+
+
+async def tasks_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.effective_chat or not update.effective_user:
+        return
+    if update.effective_chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
+        await update.message.reply_text("请在群里使用 /tasks 查看今日任务。")
+        return
+    _remember_group_chat(update, context)
+    rows = _points_service(context).list_tasks_for_user(update.effective_chat.id, update.effective_user.id)
+    lines = ["今日任务进度"]
+    for row in rows:
+        state = "已完成" if row["completed"] else f"{row['progress_value']}/{row['target_value']}"
+        lines.append(f"- {row['title']}：{state}，奖励 {row['reward_points']} 积分")
+    content = "\n".join(lines)
+    try:
+        await context.bot.send_message(chat_id=update.effective_user.id, text=content)
+        await update.message.reply_text("任务详情已私聊发送。", reply_markup=points_entry_markup(update.effective_chat.id, update.effective_user.id))
+    except TelegramError:
+        await update.message.reply_text(
+            "暂时无法私聊发送任务详情，请先私聊机器人并发送 /start。",
+            reply_markup=deep_link_markup(getattr(context.bot, "username", None), f"tasks_{update.effective_chat.id}", "打开机器人私聊"),
+        )
+
+
+async def shop_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.effective_chat or not update.effective_user:
+        return
+    if update.effective_chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
+        await update.message.reply_text("请在群里使用 /shop 查看可兑换商品。")
+        return
+    _remember_group_chat(update, context)
+    items = _points_service(context).list_shop(update.effective_chat.id)
+    if not items:
+        await update.message.reply_text("当前没有可兑换商品。")
+        return
+    lines = ["积分商城"]
+    for item in items:
+        if not item.get("enabled"):
+            continue
+        stock = "无限" if item.get("stock") in {None, ""} else item["stock"]
+        lines.append(f"- {item['item_key']}｜{item['title']}｜{item['price_points']} 积分｜库存 {stock}")
+    try:
+        await context.bot.send_message(chat_id=update.effective_user.id, text="\n".join(lines))
+        await update.message.reply_text("商品清单已私聊发送。", reply_markup=points_entry_markup(update.effective_chat.id, update.effective_user.id))
+    except TelegramError:
+        await update.message.reply_text(
+            "暂时无法私聊发送商品清单，请先私聊机器人并发送 /start。",
+            reply_markup=deep_link_markup(getattr(context.bot, "username", None), f"shop_{update.effective_chat.id}", "打开机器人私聊"),
+        )
+
+
+async def redeem_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.effective_chat or not update.effective_user:
+        return
+    if update.effective_chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
+        await update.message.reply_text("请在群里使用 /redeem 兑换商品。")
+        return
+    _remember_group_chat(update, context)
+    if not context.args:
+        await update.message.reply_text("用法：/redeem <商品键名>")
+        return
+    item_key = context.args[0].strip()
+    try:
+        result = _points_service(context).redeem(update.effective_chat.id, update.effective_user.id, item_key)
+    except ValueError as exc:
+        messages = {
+            "shop_item_unavailable": "该商品当前不可兑换。",
+            "shop_item_out_of_stock": "该商品已售罄。",
+            "insufficient_points": "积分不足，无法完成兑换。",
+        }
+        await update.message.reply_text(messages.get(str(exc), "兑换失败，请稍后重试。"))
+        return
+    item = result["item"]
+    await update.message.reply_text(
+        f"兑换成功\n商品：{item['title']}\n消耗积分：{item['price_points']}\n当前余额：{result['balance_after']}"
+    )

@@ -193,6 +193,44 @@ export function AdminConsolePage({
     refetchInterval: menuKey === "points" ? 15000 : false,
     refetchOnWindowFocus: false,
   });
+  const pointsCheckinStateQuery = useQuery({
+    queryKey: queryKeys.pointsCheckinState(baseUrl, chatId, queriedPointsUserId, adminToken),
+    queryFn: () => api.getPointsCheckinState(chatId, adminToken, queriedPointsUserId),
+    enabled: authed && chatReady && Boolean(queriedPointsUserId),
+    refetchOnWindowFocus: false,
+  });
+  const pointsTasksQuery = useQuery({
+    queryKey: queryKeys.pointsTasks(baseUrl, chatId, queriedPointsUserId, adminToken),
+    queryFn: () => api.getPointsTasks(chatId, adminToken, queriedPointsUserId || undefined),
+    enabled: authed && chatReady,
+    placeholderData: keepCurrentChatData,
+    refetchInterval: menuKey === "points" ? 15000 : false,
+    refetchOnWindowFocus: false,
+  });
+  const pointsTaskConfigQuery = useQuery({
+    queryKey: queryKeys.pointsTaskConfig(baseUrl, chatId, adminToken),
+    queryFn: () => api.getPointsTaskConfig(chatId, adminToken),
+    enabled: authed && chatReady,
+    placeholderData: keepCurrentChatData,
+    refetchInterval: menuKey === "points" ? 15000 : false,
+    refetchOnWindowFocus: false,
+  });
+  const pointsShopQuery = useQuery({
+    queryKey: queryKeys.pointsShop(baseUrl, chatId, adminToken),
+    queryFn: () => api.getPointsShop(chatId, adminToken),
+    enabled: authed && chatReady,
+    placeholderData: keepCurrentChatData,
+    refetchInterval: menuKey === "points" ? 15000 : false,
+    refetchOnWindowFocus: false,
+  });
+  const pointsRedemptionsQuery = useQuery({
+    queryKey: queryKeys.pointsRedemptions(baseUrl, chatId, "", adminToken),
+    queryFn: () => api.getPointsRedemptions(chatId, adminToken),
+    enabled: authed && chatReady,
+    placeholderData: keepCurrentChatData,
+    refetchInterval: menuKey === "points" ? 15000 : false,
+    refetchOnWindowFocus: false,
+  });
   const pointsLeaderboardQuery = useQuery({
     queryKey: queryKeys.pointsLeaderboard(baseUrl, chatId, adminToken),
     queryFn: () => api.getPointsLeaderboard(chatId, adminToken, 20),
@@ -249,6 +287,10 @@ export function AdminConsolePage({
     verificationQuestionsQuery.isLoading ||
     runtimeConfigQuery.isLoading ||
     pointsConfigQuery.isLoading ||
+    pointsTasksQuery.isLoading ||
+    pointsTaskConfigQuery.isLoading ||
+    pointsShopQuery.isLoading ||
+    pointsRedemptionsQuery.isLoading ||
     pointsLeaderboardQuery.isLoading ||
     pointsLedgerQuery.isLoading;
 
@@ -264,6 +306,11 @@ export function AdminConsolePage({
       whitelistQuery.data ||
       blacklistQuery.data ||
       pointsConfigQuery.data ||
+      pointsCheckinStateQuery.data ||
+      pointsTasksQuery.data ||
+      pointsTaskConfigQuery.data ||
+      pointsShopQuery.data ||
+      pointsRedemptionsQuery.data ||
       pointsLeaderboardQuery.data ||
       pointsLedgerQuery.data ||
       pointsBalanceQuery.data ||
@@ -284,6 +331,11 @@ export function AdminConsolePage({
     whitelistQuery.data,
     blacklistQuery.data,
     pointsConfigQuery.data,
+    pointsCheckinStateQuery.data,
+    pointsTasksQuery.data,
+    pointsTaskConfigQuery.data,
+    pointsShopQuery.data,
+    pointsRedemptionsQuery.data,
     pointsLeaderboardQuery.data,
     pointsLedgerQuery.data,
     pointsBalanceQuery.data,
@@ -303,6 +355,11 @@ export function AdminConsolePage({
     whitelistQuery.isFetching ||
     blacklistQuery.isFetching ||
     pointsConfigQuery.isFetching ||
+    pointsCheckinStateQuery.isFetching ||
+    pointsTasksQuery.isFetching ||
+    pointsTaskConfigQuery.isFetching ||
+    pointsShopQuery.isFetching ||
+    pointsRedemptionsQuery.isFetching ||
     pointsLeaderboardQuery.isFetching ||
     pointsLedgerQuery.isFetching ||
     pointsBalanceQuery.isFetching ||
@@ -320,7 +377,15 @@ export function AdminConsolePage({
       if (menuKey === "ai") tasks.push(verificationQuestionsQuery.refetch());
       if (menuKey === "group-members") tasks.push(membersQuery.refetch());
       if (menuKey === "lists") tasks.push(whitelistQuery.refetch(), blacklistQuery.refetch());
-      if (menuKey === "points") tasks.push(pointsConfigQuery.refetch(), pointsLeaderboardQuery.refetch(), pointsLedgerQuery.refetch());
+      if (menuKey === "points") tasks.push(
+        pointsConfigQuery.refetch(),
+        pointsTasksQuery.refetch(),
+        pointsTaskConfigQuery.refetch(),
+        pointsShopQuery.refetch(),
+        pointsRedemptionsQuery.refetch(),
+        pointsLeaderboardQuery.refetch(),
+        pointsLedgerQuery.refetch(),
+      );
       if (menuKey === "audit") tasks.push(auditsQuery.refetch());
       if (menuKey === "enforcement") tasks.push(enforcementsQuery.refetch());
       if (menuKey === "appeals") tasks.push(appealsQuery.refetch());
@@ -555,6 +620,11 @@ export function AdminConsolePage({
     whitelist: whitelistQuery.data ?? [],
     blacklist: blacklistQuery.data ?? [],
     pointsConfig: pointsConfigQuery.data,
+    pointsCheckinState: pointsCheckinStateQuery.data,
+    pointsTasks: pointsTasksQuery.data ?? [],
+    pointsTaskConfig: pointsTaskConfigQuery.data ?? [],
+    pointsShop: pointsShopQuery.data ?? [],
+    pointsRedemptions: pointsRedemptionsQuery.data ?? [],
     pointsLeaderboard: pointsLeaderboardQuery.data ?? [],
     pointsLedger: pointsLedgerQuery.data ?? [],
     audits: (auditsQuery.data ?? []).filter((item) => !globalSearch || item.rule_hit.includes(globalSearch)),
@@ -677,10 +747,19 @@ export function AdminConsolePage({
           queriedUserId={queriedPointsUserId}
           setQueriedUserId={setQueriedPointsUserId}
           onRefresh={async () => {
-            await Promise.all([pointsConfigQuery.refetch(), pointsLeaderboardQuery.refetch(), pointsLedgerQuery.refetch()]);
+            await Promise.all([
+              pointsConfigQuery.refetch(),
+              pointsCheckinStateQuery.refetch(),
+              pointsTasksQuery.refetch(),
+              pointsTaskConfigQuery.refetch(),
+              pointsShopQuery.refetch(),
+              pointsRedemptionsQuery.refetch(),
+              pointsLeaderboardQuery.refetch(),
+              pointsLedgerQuery.refetch(),
+            ]);
           }}
           onQueryBalance={async () => {
-            await pointsBalanceQuery.refetch();
+            await Promise.all([pointsBalanceQuery.refetch(), pointsCheckinStateQuery.refetch(), pointsTasksQuery.refetch()]);
           }}
           onSaveConfig={async (payload) => {
             await api.updatePointsConfig(chatId, adminToken, payload);
@@ -690,7 +769,32 @@ export function AdminConsolePage({
           onAdjustPoints={async (payload) => {
             await api.adjustPoints(chatId, adminToken, payload);
             toast.success("积分已调整");
-            await Promise.all([pointsLeaderboardQuery.refetch(), pointsLedgerQuery.refetch(), pointsBalanceQuery.refetch()]);
+            await Promise.all([pointsLeaderboardQuery.refetch(), pointsLedgerQuery.refetch(), pointsBalanceQuery.refetch(), pointsRedemptionsQuery.refetch()]);
+          }}
+          onCheckin={async (userId) => {
+            await api.checkinUser(chatId, adminToken, userId);
+            toast.success("签到已执行");
+            await Promise.all([pointsCheckinStateQuery.refetch(), pointsBalanceQuery.refetch(), pointsLedgerQuery.refetch(), pointsTasksQuery.refetch()]);
+          }}
+          onSaveTaskConfig={async (items) => {
+            await api.updatePointsTaskConfig(chatId, adminToken, items);
+            toast.success("任务配置已更新");
+            await Promise.all([pointsTaskConfigQuery.refetch(), pointsTasksQuery.refetch()]);
+          }}
+          onSaveShop={async (items) => {
+            await api.updatePointsShop(chatId, adminToken, items);
+            toast.success("商城商品已更新");
+            await Promise.all([pointsShopQuery.refetch(), pointsRedemptionsQuery.refetch()]);
+          }}
+          onRedeem={async (userId, itemKey) => {
+            await api.redeemPointsItem(chatId, adminToken, { user_id: userId, item_key: itemKey });
+            toast.success("兑换成功");
+            await Promise.all([pointsBalanceQuery.refetch(), pointsLedgerQuery.refetch(), pointsRedemptionsQuery.refetch(), pointsShopQuery.refetch()]);
+          }}
+          onUpdateRedemptionStatus={async (redemptionId, status) => {
+            await api.updatePointsRedemptionStatus(chatId, adminToken, redemptionId, status);
+            toast.success("兑换状态已更新");
+            await pointsRedemptionsQuery.refetch();
           }}
         />
       );

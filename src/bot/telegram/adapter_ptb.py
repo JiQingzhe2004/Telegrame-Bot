@@ -28,6 +28,7 @@ from telegram.ext import (
 )
 
 from bot.ai.openai_client import OpenAiModerator
+from bot.points_service import PointsService
 from bot.ai.redact import redact_pii
 from bot.domain.models import ChatRef, MessageRef, ModerationContext, UserRef
 from bot.domain.moderation import Enforcer, ModerationService
@@ -39,6 +40,7 @@ from bot.telegram.commands import (
     ai_cmd,
     appeal_cmd,
     banword_cmd,
+    checkin_cmd,
     config_cmd,
     forgive_cmd,
     pay_cmd,
@@ -47,8 +49,11 @@ from bot.telegram.commands import (
     points_cmd,
     points_sub_cmd,
     rank_cmd,
+    redeem_cmd,
+    shop_cmd,
     start_cmd,
     status_cmd,
+    tasks_cmd,
     threshold_cmd,
     whitelist_cmd,
 )
@@ -147,9 +152,11 @@ async def _build_welcome_text(
     chat_title: str | None,
     chat_type: str | None,
     user_name: str,
+    user_id: int | None = None,
 ) -> str:
     from datetime import datetime, timezone as _tz
     repo: BotRepository | None = context.application.bot_data.get("repo")
+    points_service: PointsService | None = context.application.bot_data.get("points_service")
     now_hour = datetime.now(tz=_tz.utc).hour
     time_of_day = _get_time_of_day(now_hour)
 
@@ -159,6 +166,18 @@ async def _build_welcome_text(
         templates = repo.list_welcome_templates(chat_id, hour=now_hour, chat_type=chat_type)
         if templates:
             chosen_template = templates[0]["template"]
+        if points_service is not None and user_id is not None:
+            bonus = points_service.get_active_welcome_bonus(chat_id, user_id)
+            if bonus and bonus.get("reward_payload"):
+                try:
+                    payload = json.loads(str(bonus["reward_payload"]))
+                    bonus_template = str(payload.get("template", "")).strip()
+                    if bonus_template:
+                        chosen_template = bonus_template
+                        if bonus.get("id"):
+                            points_service.consume_welcome_bonus(int(bonus["id"]))
+                except json.JSONDecodeError:
+                    pass
 
     fallback = _render_welcome_template(chosen_template, user_name, chat_title)
     if not runtime_config.join_welcome_use_ai:
@@ -312,6 +331,18 @@ async def on_join_verify_callback(update: Update, context: ContextTypes.DEFAULT_
 
         await query.answer("验证成功")
         await _cleanup_verification_messages(context, chat_id=chat_id, entry=entry)
+        points_service: PointsService | None = context.application.bot_data.get("points_service")
+        if points_service is not None:
+            try:
+                task_rewards = points_service.handle_verification_pass(chat_id, user_id)
+                for reward in task_rewards:
+                    await _send_temporary_notice(
+                        context,
+                        chat_id=chat_id,
+                        text=f"{query.from_user.full_name} 完成任务「{reward['task_key']}」，获得 {reward['reward_points']} 积分。",
+                    )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("verification task progress failed chat=%s user=%s err=%s", chat_id, user_id, exc)
 
         if runtime_config.join_welcome_enabled:
             welcome = await _build_welcome_text(
@@ -321,6 +352,7 @@ async def on_join_verify_callback(update: Update, context: ContextTypes.DEFAULT_
                 chat_title=update.effective_chat.title if update.effective_chat else None,
                 chat_type=update.effective_chat.type if update.effective_chat else None,
                 user_name=query.from_user.full_name,
+                user_id=query.from_user.id,
             )
             await context.bot.send_message(chat_id=chat_id, text=welcome)
     else:
@@ -404,6 +436,10 @@ async def _register_bot_commands(app: Application) -> None:
         BotCommand("points", "查看我的积分（私聊返回）"),
         BotCommand("rank", "查看本群积分排行榜"),
         BotCommand("pay", "给群成员转账积分 /pay 用户 金额"),
+        BotCommand("checkin", "每日签到领取积分"),
+        BotCommand("tasks", "查看今日任务进度"),
+        BotCommand("shop", "查看当前可兑换商品"),
+        BotCommand("redeem", "兑换商品 /redeem 商品键名"),
     ]
     admin_commands = group_commands + [
         BotCommand("points_add", "管理员加分 /points_add 用户 金额"),
@@ -497,7 +533,7 @@ async def on_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not runtime_config.join_verification_enabled:
             if runtime_config.join_welcome_enabled:
                 welcome = await _build_welcome_text(
-                    context, runtime_config, chat_id=chat.id, chat_title=chat.title, chat_type=chat.type, user_name=display_name
+                    context, runtime_config, chat_id=chat.id, chat_title=chat.title, chat_type=chat.type, user_name=display_name, user_id=joined.id
                 )
                 await msg.reply_text(welcome)
             continue
@@ -523,7 +559,7 @@ async def on_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE
                     logger.warning("save verification log failed: %s", exc)
                 if runtime_config.join_welcome_enabled:
                     welcome = await _build_welcome_text(
-                        context, runtime_config, chat_id=chat.id, chat_title=chat.title, chat_type=chat.type, user_name=display_name
+                        context, runtime_config, chat_id=chat.id, chat_title=chat.title, chat_type=chat.type, user_name=display_name, user_id=joined.id
                     )
                     await msg.reply_text(welcome)
                 continue
@@ -737,7 +773,17 @@ async def on_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
 
     try:
-        repo.maybe_reward_message_points(chat.id, user.id, text, settings)
+        points_service: PointsService | None = context.application.bot_data.get("points_service")
+        if points_service is not None:
+            points_result = points_service.handle_message_activity(chat.id, user.id, text, settings)
+            for reward in points_result.get("task_rewards", []):
+                await _send_temporary_notice(
+                    context,
+                    chat_id=chat.id,
+                    text=f"{user.full_name} 完成任务「{reward['task_key']}」，获得 {reward['reward_points']} 积分。",
+                )
+        else:
+            repo.maybe_reward_message_points(chat.id, user.id, text, settings)
     except Exception as exc:  # noqa: BLE001
         logger.warning("reward message points failed chat=%s user=%s err=%s", chat.id, user.id, exc)
 
@@ -767,6 +813,7 @@ def build_application(
     ai_moderator: OpenAiModerator | None = None,
     runtime_config: RuntimeConfig | None = None,
 ) -> Application:
+    points_service = PointsService(repo)
     app = ApplicationBuilder().token(bot_token).build()
     app.bot_data["repo"] = repo
     app.bot_data["moderation_service"] = moderation_service
@@ -774,6 +821,7 @@ def build_application(
     app.bot_data["ai_moderator"] = ai_moderator
     app.bot_data["runtime_config"] = runtime_config or RuntimeConfig()
     app.bot_data["pending_join_verifications"] = {}
+    app.bot_data["points_service"] = points_service
 
     app.add_handler(CommandHandler("status", status_cmd))
     app.add_handler(CommandHandler("start", start_cmd))
@@ -787,6 +835,10 @@ def build_application(
     app.add_handler(CommandHandler("points", points_cmd))
     app.add_handler(CommandHandler("rank", rank_cmd))
     app.add_handler(CommandHandler("pay", pay_cmd))
+    app.add_handler(CommandHandler("checkin", checkin_cmd))
+    app.add_handler(CommandHandler("tasks", tasks_cmd))
+    app.add_handler(CommandHandler("shop", shop_cmd))
+    app.add_handler(CommandHandler("redeem", redeem_cmd))
     app.add_handler(CommandHandler("points_add", points_add_cmd))
     app.add_handler(CommandHandler("points_sub", points_sub_cmd))
     app.add_handler(CallbackQueryHandler(on_points_self_callback, pattern=f"^{POINTS_SELF_CALLBACK_PREFIX}"))

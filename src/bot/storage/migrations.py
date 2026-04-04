@@ -301,6 +301,85 @@ MIGRATIONS: list[Migration] = [
         CREATE INDEX IF NOT EXISTS idx_points_ledger_chat_user_created ON chat_points_ledger(chat_id, user_id, created_at DESC);
         """,
     ),
+    Migration(
+        version="0010_points_engagement",
+        sql="""
+        ALTER TABLE chat_settings ADD COLUMN points_transfer_daily_limit INTEGER NOT NULL DEFAULT 10;
+        ALTER TABLE chat_settings ADD COLUMN points_checkin_base_reward INTEGER NOT NULL DEFAULT 3;
+        ALTER TABLE chat_settings ADD COLUMN points_checkin_streak_bonus INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE chat_settings ADD COLUMN points_checkin_streak_cap INTEGER NOT NULL DEFAULT 7;
+
+        CREATE TABLE IF NOT EXISTS chat_points_checkins(
+          chat_id INTEGER NOT NULL,
+          user_id INTEGER NOT NULL,
+          streak_days INTEGER NOT NULL DEFAULT 0,
+          last_checkin_date TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY(chat_id, user_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS chat_points_tasks(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          chat_id INTEGER NOT NULL,
+          task_key TEXT NOT NULL,
+          title TEXT NOT NULL,
+          description TEXT,
+          task_type TEXT NOT NULL,
+          target_value INTEGER NOT NULL DEFAULT 1,
+          reward_points INTEGER NOT NULL DEFAULT 0,
+          period TEXT NOT NULL DEFAULT 'daily',
+          enabled INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE(chat_id, task_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_points_tasks_chat ON chat_points_tasks(chat_id, period);
+
+        CREATE TABLE IF NOT EXISTS chat_points_task_progress(
+          chat_id INTEGER NOT NULL,
+          user_id INTEGER NOT NULL,
+          task_id INTEGER NOT NULL,
+          period_key TEXT NOT NULL,
+          progress_value INTEGER NOT NULL DEFAULT 0,
+          completed INTEGER NOT NULL DEFAULT 0,
+          reward_claimed INTEGER NOT NULL DEFAULT 0,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY(chat_id, user_id, task_id, period_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_points_task_progress_chat_user ON chat_points_task_progress(chat_id, user_id, period_key);
+
+        CREATE TABLE IF NOT EXISTS chat_points_shop_items(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          chat_id INTEGER NOT NULL,
+          item_key TEXT NOT NULL,
+          title TEXT NOT NULL,
+          description TEXT,
+          item_type TEXT NOT NULL,
+          price_points INTEGER NOT NULL DEFAULT 0,
+          stock INTEGER,
+          enabled INTEGER NOT NULL DEFAULT 1,
+          meta_json TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE(chat_id, item_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_points_shop_chat ON chat_points_shop_items(chat_id, enabled);
+
+        CREATE TABLE IF NOT EXISTS chat_points_redemptions(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          chat_id INTEGER NOT NULL,
+          user_id INTEGER NOT NULL,
+          item_id INTEGER NOT NULL,
+          price_points INTEGER NOT NULL,
+          status TEXT NOT NULL,
+          reward_payload TEXT,
+          expires_at TEXT,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_points_redemptions_chat_user_created ON chat_points_redemptions(chat_id, user_id, created_at DESC);
+        """,
+    ),
 ]
 
 
