@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 
 type Props = {
   data: AdminDataBundle;
@@ -38,11 +39,6 @@ const emptyPayload: LotteryPayload = {
     { title: "一等奖", winner_count: 1, sort_order: 0 },
   ],
 };
-
-function toDateTimeLocal(value?: string | null) {
-  if (!value) return "";
-  return value.slice(0, 16);
-}
 
 export function LotteryPanel({
   data,
@@ -82,9 +78,9 @@ export function LotteryPanel({
       allow_multiple_entries: selectedLottery.allow_multiple_entries,
       max_entries_per_user: selectedLottery.max_entries_per_user,
       show_participants: selectedLottery.show_participants,
-      starts_at: toDateTimeLocal(selectedLottery.starts_at),
-      entry_deadline_at: toDateTimeLocal(selectedLottery.entry_deadline_at),
-      draw_at: toDateTimeLocal(selectedLottery.draw_at),
+      starts_at: selectedLottery.starts_at,
+      entry_deadline_at: selectedLottery.entry_deadline_at,
+      draw_at: selectedLottery.draw_at,
       prizes: selectedLottery.prizes.map((prize, index) => ({
         title: prize.title,
         winner_count: prize.winner_count,
@@ -240,18 +236,9 @@ export function LotteryPanel({
               </div>
             </div>
             <div className="grid gap-4 md:grid-cols-3">
-              <div className="space-y-2">
-                <Label>开始时间</Label>
-                <Input type="datetime-local" value={formState.starts_at} onChange={(e) => setFormState((prev) => ({ ...prev, starts_at: e.target.value }))} />
-              </div>
-              <div className="space-y-2">
-                <Label>报名截止</Label>
-                <Input type="datetime-local" value={formState.entry_deadline_at} onChange={(e) => setFormState((prev) => ({ ...prev, entry_deadline_at: e.target.value }))} />
-              </div>
-              <div className="space-y-2">
-                <Label>开奖时间</Label>
-                <Input type="datetime-local" value={formState.draw_at} onChange={(e) => setFormState((prev) => ({ ...prev, draw_at: e.target.value }))} />
-              </div>
+              <DateTimePicker label="开始时间" value={formState.starts_at} onChange={(next) => setFormState((prev) => ({ ...prev, starts_at: next }))} />
+              <DateTimePicker label="报名截止" value={formState.entry_deadline_at} onChange={(next) => setFormState((prev) => ({ ...prev, entry_deadline_at: next }))} />
+              <DateTimePicker label="开奖时间" value={formState.draw_at} onChange={(next) => setFormState((prev) => ({ ...prev, draw_at: next }))} />
             </div>
             <div className="grid gap-4 md:grid-cols-2">
               <div className="flex items-center justify-between rounded-xl border bg-background/70 p-4">

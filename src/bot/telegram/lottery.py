@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -11,6 +12,7 @@ from bot.storage.repo import BotRepository
 
 LOTTERY_CALLBACK_PREFIX = "lottery:"
 LOTTERY_JOB_INTERVAL_SECONDS = 30
+LOTTERY_CONFIRM_TTL_SECONDS = 300
 
 
 def _repo(context: ContextTypes.DEFAULT_TYPE) -> BotRepository:
@@ -30,6 +32,44 @@ def _display_name(row: dict[str, Any], fallback: int) -> str:
     return name or row.get("username") or str(fallback)
 
 
+def _format_local_time(value: str | None) -> str:
+    if not value:
+        return "-"
+    parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    return parsed.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+
+
+async def _safe_delete_message(bot, chat_id: int, message_id: int | None) -> None:
+    if not message_id:
+        return
+    try:
+        await bot.delete_message(chat_id=chat_id, message_id=int(message_id))
+    except TelegramError:
+        return
+
+
+async def _delete_message_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    data = context.job.data if context.job else None
+    if not isinstance(data, dict):
+        return
+    await _safe_delete_message(
+        context.bot,
+        int(data.get("chat_id", 0)),
+        int(data.get("message_id", 0)),
+    )
+
+
+def _schedule_delete(context: ContextTypes.DEFAULT_TYPE, *, chat_id: int, message_id: int, ttl_seconds: int = LOTTERY_CONFIRM_TTL_SECONDS) -> None:
+    if context.application.job_queue is None:
+        return
+    context.application.job_queue.run_once(
+        _delete_message_job,
+        when=ttl_seconds,
+        data={"chat_id": chat_id, "message_id": message_id},
+        name=f"lottery-cleanup-{chat_id}-{message_id}",
+    )
+
+
 def build_lottery_message_text(lottery: dict[str, Any], prizes: list[dict[str, Any]], *, stats: dict[str, Any] | None = None) -> str:
     mode_label = {
         ENTRY_MODE_FREE: "免费参与",
@@ -41,8 +81,8 @@ def build_lottery_message_text(lottery: dict[str, Any], prizes: list[dict[str, A
         lottery.get("description") or "暂无活动说明",
         "",
         f"参与方式：{mode_label}",
-        f"报名时间：{lottery['starts_at']} 至 {lottery['entry_deadline_at']}",
-        f"开奖时间：{lottery['draw_at']}",
+        f"报名时间：{_format_local_time(lottery.get('starts_at'))} 至 {_format_local_time(lottery.get('entry_deadline_at'))}",
+        f"开奖时间：{_format_local_time(lottery.get('draw_at'))}",
         f"参与次数：{'可多次参与' if lottery['allow_multiple_entries'] else '每人仅一次'}（上限 {lottery['max_entries_per_user']}）",
         "",
         "奖项设置：",
@@ -126,10 +166,16 @@ async def on_lottery_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             await query.answer("本活动会扣除积分，请点击确认参与。", show_alert=True)
             if query.message:
                 try:
-                    await query.message.reply_text(
+                    notice = await query.message.reply_text(
                         f"确认参与「{lottery['title']}」将消耗 {lottery['points_cost']} 积分。",
                         reply_markup=build_lottery_message_markup(lottery_id, consume_confirm=True),
                     )
+                    if update.effective_chat:
+                        _schedule_delete(
+                            context,
+                            chat_id=int(update.effective_chat.id),
+                            message_id=int(notice.message_id),
+                        )
                 except TelegramError:
                     pass
             return

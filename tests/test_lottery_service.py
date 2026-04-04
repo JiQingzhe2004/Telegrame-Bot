@@ -2,7 +2,7 @@ import asyncio
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from telegram import Chat
 
@@ -11,7 +11,7 @@ from bot.lottery_service import ENTRY_MODE_CONSUME, ENTRY_MODE_FREE, ENTRY_MODE_
 from bot.storage.db import Database
 from bot.storage.migrations import migrate
 from bot.storage.repo import BotRepository
-from bot.telegram.lottery import LOTTERY_CALLBACK_PREFIX, on_lottery_callback
+from bot.telegram.lottery import LOTTERY_CALLBACK_PREFIX, build_lottery_message_text, on_lottery_callback
 from bot.utils.time import to_iso, utc_now
 
 
@@ -174,3 +174,54 @@ def test_lottery_callback_join_free_activity(tmp_path):
 
     query.answer.assert_awaited_once()
     assert "报名成功" in query.answer.await_args.args[0]
+
+
+def test_lottery_message_text_formats_local_time():
+    text = build_lottery_message_text(
+        {
+            "title": "周末抽奖",
+            "description": "测试活动",
+            "entry_mode": ENTRY_MODE_FREE,
+            "points_cost": 0,
+            "points_threshold": 0,
+            "starts_at": "2026-04-05T12:30:00+00:00",
+            "entry_deadline_at": "2026-04-05T13:30:00+00:00",
+            "draw_at": "2026-04-05T14:30:00+00:00",
+            "allow_multiple_entries": False,
+            "max_entries_per_user": 1,
+        },
+        [{"title": "一等奖", "winner_count": 1}],
+    )
+
+    assert "T12:30:00" not in text
+    assert "+00:00" not in text
+    assert "开奖时间：" in text
+
+
+def test_lottery_callback_consume_prompt_schedules_cleanup(tmp_path):
+    repo = make_repo(tmp_path / "bot.db")
+    seed_users(repo, 1)
+    service = LotteryService(repo)
+    lottery = make_lottery(service, 1, entry_mode=ENTRY_MODE_CONSUME)
+    reply_text = AsyncMock(return_value=SimpleNamespace(message_id=222))
+    query = SimpleNamespace(
+        data=f"{LOTTERY_CALLBACK_PREFIX}join:{lottery['id']}:1",
+        from_user=SimpleNamespace(id=11),
+        answer=AsyncMock(),
+        message=SimpleNamespace(reply_text=reply_text),
+    )
+    run_once = Mock()
+    update = SimpleNamespace(
+        callback_query=query,
+        effective_chat=SimpleNamespace(id=-1001, type=Chat.SUPERGROUP, title="测试群"),
+    )
+    context = SimpleNamespace(
+        application=SimpleNamespace(bot_data={"repo": repo, "lottery_service": service}, job_queue=SimpleNamespace(run_once=run_once)),
+        bot=SimpleNamespace(),
+    )
+
+    asyncio.run(on_lottery_callback(update, context))
+
+    reply_text.assert_awaited_once()
+    run_once.assert_called_once()
+    assert run_once.call_args.kwargs["when"] == 300
