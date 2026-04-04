@@ -1,6 +1,6 @@
 [project]
 name = "telegram-moderator-bot"
-version = "0.1.12"
+version = "1.0.0"
 description = "Telegram group moderation bot service with rules + AI + SQLite audit."
 readme = "README.md"
 requires-python = ">=3.12"

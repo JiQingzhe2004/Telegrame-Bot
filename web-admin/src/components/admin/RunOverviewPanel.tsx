@@ -4,14 +4,6 @@ import { translatePermission } from "@/lib/helpers";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 
 type Props = {
   runtimeState: "setup" | "active";
@@ -72,38 +64,31 @@ export function RunOverviewPanel({ runtimeState, chatId, data, onPermissionCheck
             {checking ? "检查中..." : "权限一键自检"}
           </Button>
         </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[220px]">项目</TableHead>
-                <TableHead>值</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <TableRow>
-                <TableCell className="font-medium">群名</TableCell>
-                <TableCell>{data.overview?.chat.title ?? "-"}</TableCell>
-              </TableRow>
-              <TableRow>
-                <TableCell className="font-medium">成员数</TableCell>
-                <TableCell>{data.overview?.member_count ?? "-"}</TableCell>
-              </TableRow>
-              {Object.entries(data.overview?.capabilities ?? {}).map(([name, ok]) => (
-                <TableRow key={name}>
-                  <TableCell className="font-medium">{translatePermission(name)}</TableCell>
-                  <TableCell>
-                    <Badge
-                      variant={ok ? "outline" : "secondary"}
-                      className={ok ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-500/10 dark:text-emerald-200" : ""}
-                    >
-                      {ok ? "可用" : "不可用"}
-                    </Badge>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+        <CardContent className="flex flex-col gap-4">
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded-xl border bg-background/70 p-4">
+              <div className="text-xs text-muted-foreground">群名</div>
+              <div className="mt-1 font-medium">{data.overview?.chat.title ?? "-"}</div>
+            </div>
+            <div className="rounded-xl border bg-background/70 p-4">
+              <div className="text-xs text-muted-foreground">成员数</div>
+              <div className="mt-1 font-medium">{data.overview?.member_count ?? "-"}</div>
+            </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {Object.entries(data.overview?.capabilities ?? {}).map(([name, ok]) => (
+              <div key={name} className="flex items-center justify-between rounded-xl border bg-background/70 px-4 py-3">
+                <span className="text-sm font-medium">{translatePermission(name)}</span>
+                <Badge
+                  variant={ok ? "outline" : "secondary"}
+                  className={ok ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-500/10 dark:text-emerald-200" : ""}
+                >
+                  {ok ? "可用" : "不可用"}
+                </Badge>
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
     </div>
