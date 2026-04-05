@@ -281,6 +281,11 @@ export type PointsShopItem = {
   stock: number | null;
   enabled: boolean;
   meta_json: string | null;
+  meta?: {
+    title_mode?: "fixed" | "custom";
+    fixed_title?: string;
+    auto_approve?: boolean;
+  };
   created_at: string;
   updated_at: string;
 };
@@ -293,6 +298,17 @@ export type PointsRedemption = {
   price_points: number;
   status: string;
   reward_payload: string | null;
+  item_key?: string | null;
+  item_title?: string | null;
+  item_type?: string | null;
+  payload?: {
+    requested_title?: string;
+    fixed_title?: string;
+    title_mode?: "fixed" | "custom";
+    approval_status?: string;
+    apply_error?: string;
+    applied_title?: string;
+  };
   expires_at: string | null;
   created_at: string;
 };

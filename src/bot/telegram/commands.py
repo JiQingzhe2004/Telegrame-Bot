@@ -10,6 +10,14 @@ from telegram.ext import ContextTypes
 from bot.domain.models import ChatRef
 from bot.points_service import PointsService
 from bot.telegram.permissions import is_admin
+from bot.title_redemption_service import (
+    TITLE_MODE_CUSTOM,
+    TITLE_STATUS_PENDING_INPUT,
+    TitleRedemptionService,
+    parse_redemption_payload,
+    parse_title_shop_meta,
+    validate_custom_title,
+)
 
 
 POINTS_SELF_CALLBACK_PREFIX = "points:self:"
@@ -38,6 +46,10 @@ def _points_service(ctx: ContextTypes.DEFAULT_TYPE):
         service = PointsService(_repo(ctx))
         ctx.application.bot_data["points_service"] = service
     return service
+
+
+def _title_service(ctx: ContextTypes.DEFAULT_TYPE) -> TitleRedemptionService:
+    return TitleRedemptionService(_repo(ctx), ctx.bot)
 
 
 def _reply_target(update: Update):
@@ -138,6 +150,14 @@ def _set_active_chat(session: dict[str, Any], chat_id: int, chat_title: str | No
 
 def _clear_transfer_state(session: dict[str, Any]) -> None:
     session.pop("transfer", None)
+
+
+def _set_pending_custom_title(session: dict[str, Any], *, redemption_id: int, chat_id: int) -> None:
+    session["pending_custom_title"] = {"redemption_id": int(redemption_id), "chat_id": int(chat_id)}
+
+
+def _clear_pending_custom_title(session: dict[str, Any]) -> None:
+    session.pop("pending_custom_title", None)
 
 
 def _remember_group_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -256,13 +276,87 @@ def _shop_list_markup(chat_id: int, items: list[dict[str, Any]]) -> InlineKeyboa
 
 def _shop_item_text(item: dict[str, Any], balance: dict[str, Any], chat_title: str | None) -> str:
     stock = "无限" if item.get("stock") in {None, ""} else item["stock"]
+    extra = ""
+    if str(item.get("item_type")) == "leaderboard_title":
+        meta = parse_title_shop_meta(item)
+        mode_text = "用户自定义头衔" if meta["title_mode"] == TITLE_MODE_CUSTOM else f"固定头衔：{meta['fixed_title']}"
+        auto_text = "自动审批" if meta["auto_approve"] else "人工审批"
+        extra = f"\n头衔模式：{mode_text}\n审批方式：{auto_text}"
     return (
         f"商品详情 - {chat_title or '当前群聊'}\n"
         f"名称：{item['title']}\n"
         f"价格：{item['price_points']} 积分\n"
         f"库存：{stock}\n"
         f"说明：{item.get('description') or '暂无说明'}\n"
+        f"{extra}\n"
         f"你当前余额：{balance['balance']}"
+    )
+
+
+def _resolve_pending_custom_title_redemption(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> dict[str, Any] | None:
+    session = _session(context, user_id)
+    pending = session.get("pending_custom_title")
+    if isinstance(pending, dict):
+        try:
+            redemption_id = int(pending.get("redemption_id", 0))
+        except (TypeError, ValueError):
+            redemption_id = 0
+        if redemption_id:
+            row = _repo(context).get_redemption(redemption_id)
+            if row and str(row.get("status")) == TITLE_STATUS_PENDING_INPUT:
+                return row
+    candidates = _repo(context).list_pending_custom_title_redemptions(user_id)
+    pending_rows = [row for row in candidates if str(row.get("status")) == TITLE_STATUS_PENDING_INPUT]
+    return pending_rows[0] if len(pending_rows) == 1 else None
+
+
+async def _title_redeem_feedback(
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    user_id: int,
+    chat_id: int,
+    redemption: dict[str, Any],
+    item: dict[str, Any],
+    balance_after: int,
+) -> str:
+    session = _session(context, user_id)
+    meta = parse_title_shop_meta(item)
+    if meta["title_mode"] == TITLE_MODE_CUSTOM:
+        _set_pending_custom_title(session, redemption_id=int(redemption["id"]), chat_id=chat_id)
+        return (
+            f"兑换成功\n"
+            f"商品：{item['title']}\n"
+            f"消耗积分：{item['price_points']}\n"
+            f"当前余额：{balance_after}\n\n"
+            "请直接在当前私聊窗口发送你想设置的头衔文本。"
+        )
+
+    if meta["auto_approve"]:
+        applied = await _title_service(context).apply_redemption(int(redemption["id"]))
+        if applied.success:
+            _clear_pending_custom_title(session)
+            return (
+                f"兑换成功\n"
+                f"商品：{item['title']}\n"
+                f"消耗积分：{item['price_points']}\n"
+                f"当前余额：{balance_after}\n"
+                f"头衔已自动设置为：{parse_title_shop_meta(item)['fixed_title']}"
+            )
+        return (
+            f"兑换已记录\n"
+            f"商品：{item['title']}\n"
+            f"消耗积分：{item['price_points']}\n"
+            f"当前余额：{balance_after}\n"
+            f"自动设置头衔失败：{applied.reason}"
+        )
+
+    _clear_pending_custom_title(session)
+    return (
+        f"兑换成功\n"
+        f"商品：{item['title']}\n"
+        f"消耗积分：{item['price_points']}\n"
+        f"当前余额：{balance_after}\n"
+        "已提交管理员审批，审批通过后机器人会自动为你设置头衔。"
     )
 
 
@@ -907,15 +1001,27 @@ async def on_user_flow_callback(update: Update, context: ContextTypes.DEFAULT_TY
                 await _send_or_edit_user_view(update, context, text=text, markup=markup)
                 return
             item = result["item"]
-            await _send_or_edit_user_view(
-                update,
-                context,
-                text=(
+            success_text = (
+                await _title_redeem_feedback(
+                    context,
+                    user_id=update.effective_user.id,
+                    chat_id=chat_id,
+                    redemption=result["redemption"],
+                    item=item,
+                    balance_after=result["balance_after"],
+                )
+                if str(item.get("item_type")) == "leaderboard_title"
+                else (
                     f"兑换成功\n"
                     f"商品：{item['title']}\n"
                     f"消耗积分：{item['price_points']}\n"
                     f"当前余额：{result['balance_after']}"
-                ),
+                )
+            )
+            await _send_or_edit_user_view(
+                update,
+                context,
+                text=success_text,
                 markup=_private_nav_markup(
                     [
                         [("继续逛商城", f"{USER_FLOW_CALLBACK_PREFIX}{USER_ACTION_SHOP}:{chat_id}:0")],
@@ -950,6 +1056,42 @@ async def on_private_text(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await message.reply_text(error, reply_markup=_transfer_intro_markup(int(chat_id), members))
             return
         await _render_transfer_amount(update, context, chat_id=int(chat_id), target_user_id=int(member["user_id"]))
+        return
+    pending_candidates = [
+        row for row in _repo(context).list_pending_custom_title_redemptions(update.effective_user.id) if str(row.get("status")) == TITLE_STATUS_PENDING_INPUT
+    ]
+    if len(pending_candidates) > 1:
+        await message.reply_text("你有多条待填写的头衔兑换，请回到对应商品兑换入口后再继续填写。")
+        return
+    pending_title = pending_candidates[0] if pending_candidates else _resolve_pending_custom_title_redemption(context, update.effective_user.id)
+    if pending_title is not None:
+        try:
+            requested = validate_custom_title(text)
+        except ValueError as exc:
+            messages = {
+                "missing_custom_title": "头衔不能为空，请重新发送。",
+                "custom_title_too_long": "头衔长度不能超过 16 个字符，请重新发送。",
+            }
+            await message.reply_text(messages.get(str(exc), "头衔格式不正确，请重新发送。"))
+            return
+        updated = _title_service(context).submit_custom_title(int(pending_title["id"]), requested)
+        if updated is None:
+            await message.reply_text("这条头衔兑换记录已经失效了，请重新购买。")
+            return
+        payload = parse_redemption_payload(updated)
+        meta = parse_title_shop_meta(pending_title)
+        if bool(meta["auto_approve"]):
+            applied = await _title_service(context).apply_redemption(int(updated["id"]))
+            _clear_pending_custom_title(_session(context, update.effective_user.id))
+            if applied.success:
+                await message.reply_text(f"头衔已提交并自动生效：{requested}")
+            else:
+                await message.reply_text(f"头衔已提交，但自动设置失败：{applied.reason}")
+            return
+        _clear_pending_custom_title(_session(context, update.effective_user.id))
+        await message.reply_text(
+            f"头衔申请已提交：{payload['requested_title']}\n管理员审批通过后，机器人会自动为你设置头衔。"
+        )
         return
     if step == TRANSFER_STEP_AMOUNT:
         try:
@@ -1413,8 +1555,30 @@ async def redeem_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.message.reply_text(messages.get(str(exc), "兑换没有成功，请稍后再试。"))
         return
     item = result["item"]
+    if str(item.get("item_type")) == "leaderboard_title":
+        meta = parse_title_shop_meta(item)
+        if meta["title_mode"] == TITLE_MODE_CUSTOM:
+            _set_pending_custom_title(_session(context, update.effective_user.id), redemption_id=int(result["redemption"]["id"]), chat_id=update.effective_chat.id)
+            text = (
+                f"兑换成功，已兑换 {item['title']}，当前余额：{result['balance_after']}。\n"
+                "请立即打开机器人私聊并发送你想设置的头衔文本。"
+            )
+        elif meta["auto_approve"]:
+            applied = await _title_service(context).apply_redemption(int(result["redemption"]["id"]))
+            text = (
+                f"兑换成功，已兑换 {item['title']}，当前余额：{result['balance_after']}。\n头衔已自动生效。"
+                if applied.success
+                else f"兑换已记录，当前余额：{result['balance_after']}。\n自动设置头衔失败：{applied.reason}"
+            )
+        else:
+            text = (
+                f"兑换成功，已兑换 {item['title']}，当前余额：{result['balance_after']}。\n"
+                "已提交管理员审批，审批通过后机器人会自动设置头衔。"
+            )
+    else:
+        text = f"兑换成功，已兑换 {item['title']}，当前余额：{result['balance_after']}。"
     await update.message.reply_text(
-        f"兑换成功，已兑换 {item['title']}，当前余额：{result['balance_after']}。",
+        text,
         reply_markup=_group_entry_markup(
             context,
             chat_id=update.effective_chat.id,

@@ -19,6 +19,7 @@ from bot.storage.repo import BotRepository
 from bot.system_config import ConfigService
 from bot.telegram.admin_service import TelegramAdminService
 from bot.telegram.lottery import build_winners_summary, send_lottery_announcement
+from bot.title_redemption_service import TitleRedemptionService
 from bot.utils.time import utc_now
 from bot.version import get_backend_version
 
@@ -523,6 +524,11 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
             result = points_service.redeem(chat_id, user_id, item_key)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        item = result.get("item") or {}
+        meta = item.get("meta") if isinstance(item, dict) else {}
+        if str(item.get("item_type")) == "leaderboard_title" and bool(meta.get("auto_approve")) and str(meta.get("title_mode")) == "fixed":
+            applied = await _title_redemption_service().apply_redemption(int(result["redemption"]["id"]))
+            result["redemption"] = applied.redemption or result["redemption"]
         return ApiEnvelope(ok=True, data=result)
 
     @app.get("/api/v1/chats/{chat_id}/points/redemptions", dependencies=[Depends(require_active), Depends(auth_admin)])
@@ -535,9 +541,18 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
     async def post_points_redemption_status(chat_id: int, redemption_id: int, body: dict[str, Any]) -> ApiEnvelope:
         _get_known_chat(chat_id)
         status = str(body.get("status", "")).strip().lower()
-        if status not in {"pending", "active", "rejected", "consumed", "expired"}:
+        if status not in {"pending", "pending_input", "active", "rejected", "consumed", "expired", "failed"}:
             raise HTTPException(status_code=400, detail="invalid_redemption_status")
-        row = points_service.update_redemption_status(redemption_id, status)
+        current = services.repo.get_redemption(redemption_id)
+        if current is None:
+            raise HTTPException(status_code=404, detail="redemption_not_found")
+        if str(current.get("item_type")) == "leaderboard_title" and status == "active":
+            if str(current.get("status")) == "pending_input":
+                raise HTTPException(status_code=400, detail="custom_title_not_submitted")
+            applied = await _title_redemption_service().apply_redemption(redemption_id)
+            row = applied.redemption
+        else:
+            row = points_service.update_redemption_status(redemption_id, status)
         if row is None:
             raise HTTPException(status_code=404, detail="redemption_not_found")
         return ApiEnvelope(ok=True, data=row)
@@ -820,6 +835,12 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
         if not tg_app:
             raise HTTPException(status_code=409, detail="runtime_not_active")
         return TelegramAdminService(tg_app.bot, services.repo)
+
+    def _title_redemption_service() -> TitleRedemptionService:
+        tg_app = services.runtime_manager.get_bot_application()
+        if not tg_app:
+            raise HTTPException(status_code=409, detail="runtime_not_active")
+        return TitleRedemptionService(services.repo, tg_app.bot)
 
     @app.get("/api/v1/chats/{chat_id}/admin/overview", dependencies=[Depends(require_active), Depends(auth_admin)])
     async def admin_overview(chat_id: int) -> ApiEnvelope:

@@ -944,9 +944,11 @@ class BotRepository:
             if user_id is None:
                 rows = conn.execute(
                     """
-                    SELECT id, chat_id, user_id, item_id, price_points, status, reward_payload, expires_at, created_at
-                    FROM chat_points_redemptions
-                    WHERE chat_id = ?
+                    SELECT r.id, r.chat_id, r.user_id, r.item_id, r.price_points, r.status, r.reward_payload, r.expires_at, r.created_at,
+                           s.item_key, s.title AS item_title, s.item_type
+                    FROM chat_points_redemptions r
+                    JOIN chat_points_shop_items s ON s.id = r.item_id
+                    WHERE r.chat_id = ?
                     ORDER BY id DESC
                     LIMIT ?
                     """,
@@ -955,9 +957,11 @@ class BotRepository:
             else:
                 rows = conn.execute(
                     """
-                    SELECT id, chat_id, user_id, item_id, price_points, status, reward_payload, expires_at, created_at
-                    FROM chat_points_redemptions
-                    WHERE chat_id = ? AND user_id = ?
+                    SELECT r.id, r.chat_id, r.user_id, r.item_id, r.price_points, r.status, r.reward_payload, r.expires_at, r.created_at,
+                           s.item_key, s.title AS item_title, s.item_type
+                    FROM chat_points_redemptions r
+                    JOIN chat_points_shop_items s ON s.id = r.item_id
+                    WHERE r.chat_id = ? AND r.user_id = ?
                     ORDER BY id DESC
                     LIMIT ?
                     """,
@@ -965,21 +969,71 @@ class BotRepository:
                 ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_redemption(self, redemption_id: int) -> dict[str, Any] | None:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT r.id, r.chat_id, r.user_id, r.item_id, r.price_points, r.status, r.reward_payload, r.expires_at, r.created_at,
+                       s.item_key, s.title AS item_title, s.item_type, s.meta_json
+                FROM chat_points_redemptions r
+                JOIN chat_points_shop_items s ON s.id = r.item_id
+                WHERE r.id = ?
+                """,
+                (redemption_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
     def update_redemption_status(self, redemption_id: int, status: str) -> dict[str, Any] | None:
         with self.db.connect() as conn:
             conn.execute(
                 "UPDATE chat_points_redemptions SET status = ? WHERE id = ?",
                 (status, redemption_id),
             )
-            row = conn.execute(
+        return self.get_redemption(redemption_id)
+
+    def update_redemption(
+        self,
+        redemption_id: int,
+        *,
+        status: str | None = None,
+        reward_payload: str | None = None,
+        expires_at: str | None = None,
+    ) -> dict[str, Any] | None:
+        current = self.get_redemption(redemption_id)
+        if current is None:
+            return None
+        next_status = status if status is not None else str(current["status"])
+        next_payload = reward_payload if reward_payload is not None else current.get("reward_payload")
+        next_expires_at = expires_at if expires_at is not None else current.get("expires_at")
+        with self.db.connect() as conn:
+            conn.execute(
                 """
-                SELECT id, chat_id, user_id, item_id, price_points, status, reward_payload, expires_at, created_at
-                FROM chat_points_redemptions
+                UPDATE chat_points_redemptions
+                SET status = ?, reward_payload = ?, expires_at = ?
                 WHERE id = ?
                 """,
-                (redemption_id,),
-            ).fetchone()
-        return dict(row) if row else None
+                (next_status, next_payload, next_expires_at, redemption_id),
+            )
+        return self.get_redemption(redemption_id)
+
+    def list_pending_custom_title_redemptions(self, user_id: int, limit: int = 10) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT r.id, r.chat_id, r.user_id, r.item_id, r.price_points, r.status, r.reward_payload, r.expires_at, r.created_at,
+                       s.item_key, s.title AS item_title, s.item_type, s.meta_json, c.title AS chat_title
+                FROM chat_points_redemptions r
+                JOIN chat_points_shop_items s ON s.id = r.item_id
+                LEFT JOIN chats c ON c.chat_id = r.chat_id
+                WHERE r.user_id = ?
+                  AND s.item_type = 'leaderboard_title'
+                  AND r.status IN ('pending_input', 'pending', 'failed')
+                ORDER BY r.id DESC
+                LIMIT ?
+                """,
+                (user_id, limit),
+            ).fetchall()
+        return [dict(r) for r in rows]
 
     def create_lottery(
         self,

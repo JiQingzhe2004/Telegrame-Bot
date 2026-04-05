@@ -42,6 +42,23 @@ type Props = {
   onUpdateRedemptionStatus: (redemptionId: number, status: string) => Promise<void>;
 };
 
+function getTitleModeLabel(mode?: string) {
+  return mode === "custom" ? "用户自定义" : "固定头衔";
+}
+
+function getApprovalStatusLabel(status?: string) {
+  const map: Record<string, string> = {
+    pending_input: "待用户提交",
+    pending: "待审批",
+    active: "已生效",
+    rejected: "已拒绝",
+    failed: "设置失败",
+    consumed: "已消耗",
+    expired: "已过期",
+  };
+  return map[String(status || "").toLowerCase()] ?? status ?? "-";
+}
+
 export function PointsPanel({
   data,
   balance,
@@ -410,9 +427,90 @@ export function PointsPanel({
                   {shopItems.map((item, index) => (
                     <TableRow key={item.item_key}>
                       <TableCell>
-                        <div className="flex flex-col">
+                        <div className="flex flex-col gap-2">
                           <span>{item.title}</span>
                           <span className="text-xs text-muted-foreground">{item.description}</span>
+                          {item.item_type === "leaderboard_title" ? (
+                            <div className="rounded-lg border bg-muted/20 p-3">
+                              <div className="grid gap-3 md:grid-cols-3">
+                                <div className="space-y-2">
+                                  <Label className="text-xs">审批方式</Label>
+                                  <div className="flex items-center gap-2">
+                                    <Switch
+                                      checked={Boolean(item.meta?.auto_approve)}
+                                      onCheckedChange={(checked) =>
+                                        setShopItems((prev) =>
+                                          prev.map((entry, i) =>
+                                            i === index
+                                              ? { ...entry, meta: { ...entry.meta, auto_approve: checked, title_mode: entry.meta?.title_mode ?? "fixed" } }
+                                              : entry,
+                                          ),
+                                        )
+                                      }
+                                    />
+                                    <span className="text-xs text-muted-foreground">{item.meta?.auto_approve ? "自动审批" : "人工审批"}</span>
+                                  </div>
+                                </div>
+                                <div className="space-y-2">
+                                  <Label className="text-xs">头衔模式</Label>
+                                  <div className="flex gap-2">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant={item.meta?.title_mode !== "custom" ? "default" : "outline"}
+                                      onClick={() =>
+                                        setShopItems((prev) =>
+                                          prev.map((entry, i) =>
+                                            i === index
+                                              ? { ...entry, meta: { ...entry.meta, title_mode: "fixed", fixed_title: entry.meta?.fixed_title || "积分榜之星" } }
+                                              : entry,
+                                          ),
+                                        )
+                                      }
+                                    >
+                                      固定头衔
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant={item.meta?.title_mode === "custom" ? "default" : "outline"}
+                                      onClick={() =>
+                                        setShopItems((prev) =>
+                                          prev.map((entry, i) =>
+                                            i === index
+                                              ? { ...entry, meta: { ...entry.meta, title_mode: "custom" } }
+                                              : entry,
+                                          ),
+                                        )
+                                      }
+                                    >
+                                      用户自定义
+                                    </Button>
+                                  </div>
+                                </div>
+                                {item.meta?.title_mode !== "custom" ? (
+                                  <div className="space-y-2">
+                                    <Label className="text-xs">固定头衔文本</Label>
+                                    <Input
+                                      value={item.meta?.fixed_title ?? ""}
+                                      onChange={(e) =>
+                                        setShopItems((prev) =>
+                                          prev.map((entry, i) =>
+                                            i === index
+                                              ? { ...entry, meta: { ...entry.meta, fixed_title: e.target.value, title_mode: "fixed" } }
+                                              : entry,
+                                          ),
+                                        )
+                                      }
+                                      placeholder="请输入固定头衔"
+                                    />
+                                  </div>
+                                ) : (
+                                  <div className="flex items-end text-xs text-muted-foreground">购买后由用户在机器人私聊中提交头衔文本</div>
+                                )}
+                              </div>
+                            </div>
+                          ) : null}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -543,14 +641,29 @@ export function PointsPanel({
                     data.pointsRedemptions.map((row) => (
                       <TableRow key={row.id}>
                         <TableCell>{row.user_id}</TableCell>
-                        <TableCell>{row.item_id}</TableCell>
+                        <TableCell>{row.item_title || row.item_key || row.item_id}</TableCell>
                         <TableCell>{row.price_points}</TableCell>
-                        <TableCell>{row.status}</TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-1">
+                            <span>{getApprovalStatusLabel(row.payload?.approval_status || row.status)}</span>
+                            {row.item_type === "leaderboard_title" ? (
+                              <>
+                                <span className="text-xs text-muted-foreground">模式：{getTitleModeLabel(row.payload?.title_mode)}</span>
+                                <span className="text-xs text-muted-foreground">
+                                  头衔：{row.payload?.requested_title || row.payload?.fixed_title || "-"}
+                                </span>
+                                {row.payload?.apply_error ? <span className="text-xs text-destructive">失败原因：{row.payload.apply_error}</span> : null}
+                              </>
+                            ) : null}
+                          </div>
+                        </TableCell>
                         <TableCell>{row.expires_at || "-"}</TableCell>
                         <TableCell>{row.created_at}</TableCell>
                         <TableCell>
                           <div className="flex gap-2">
-                            {row.status === "pending" ? (
+                            {row.item_type === "leaderboard_title" && (row.payload?.approval_status || row.status) === "pending_input" ? (
+                              <span className="text-xs text-muted-foreground">等待用户提交头衔</span>
+                            ) : row.status === "pending" || row.status === "failed" ? (
                               <>
                                 <Button size="sm" variant="outline" onClick={() => void onUpdateRedemptionStatus(row.id, "active")}>
                                   设为生效

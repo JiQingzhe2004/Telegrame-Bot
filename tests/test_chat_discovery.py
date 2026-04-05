@@ -604,6 +604,112 @@ def test_user_flow_shop_redeem_via_callbacks(tmp_path):
     assert balance["balance"] == 20
 
 
+def test_user_flow_title_redeem_auto_apply_fixed_title(tmp_path):
+    repo = make_repo(tmp_path)
+    repo.upsert_chat_user(
+        ChatRef(chat_id=-100301, type=Chat.SUPERGROUP, title="积分群"),
+        UserRef(user_id=42, username="alice", is_bot=False, first_name="Alice"),
+    )
+    from bot.points_service import PointsService
+
+    PointsService(repo).update_shop(
+        chat_id=-100301,
+        items=[
+            {
+                "item_key": "leaderboard_title",
+                "title": "积分榜头衔",
+                "description": "申请头衔",
+                "item_type": "leaderboard_title",
+                "price_points": 30,
+                "stock": None,
+                "enabled": True,
+                "meta": {"title_mode": "fixed", "fixed_title": "积分榜之星", "auto_approve": True},
+            }
+        ],
+    )
+    repo.adjust_points(chat_id=-100301, user_id=42, amount=50, event_type="admin_adjust", operator="test")
+    redeem_query = SimpleNamespace(
+        data=f"{USER_FLOW_CALLBACK_PREFIX}shop:redeem:-100301:leaderboard_title",
+        answer=AsyncMock(),
+        edit_message_text=AsyncMock(),
+    )
+    redeem_update = SimpleNamespace(
+        callback_query=redeem_query,
+        effective_user=SimpleNamespace(id=42, username="alice"),
+        effective_chat=SimpleNamespace(id=42, type=Chat.PRIVATE, title=None),
+    )
+    context = SimpleNamespace(
+        application=SimpleNamespace(bot_data={"repo": repo, "user_sessions": {"42": {"recent_chat_id": -100301, "recent_chat_title": "积分群"}}}),
+        bot=SimpleNamespace(
+            username="test_bot",
+            get_me=AsyncMock(return_value=SimpleNamespace(id=999)),
+            get_chat_member=AsyncMock(return_value=SimpleNamespace(status="creator", is_anonymous=False)),
+            set_chat_administrator_custom_title=AsyncMock(),
+        ),
+    )
+
+    asyncio.run(on_user_flow_callback(redeem_update, context))
+
+    context.bot.set_chat_administrator_custom_title.assert_awaited_once_with(chat_id=-100301, user_id=42, custom_title="积分榜之星")
+    assert "头衔已自动设置为" in redeem_query.edit_message_text.await_args.kwargs["text"]
+
+
+def test_private_text_submits_custom_title_and_auto_applies(tmp_path):
+    repo = make_repo(tmp_path)
+    repo.upsert_chat(ChatRef(chat_id=-100302, type=Chat.SUPERGROUP, title="积分群"))
+    repo.upsert_chat_user(
+        ChatRef(chat_id=-100302, type=Chat.SUPERGROUP, title="积分群"),
+        UserRef(user_id=42, username="alice", is_bot=False, first_name="Alice"),
+    )
+    from bot.points_service import PointsService
+
+    service = PointsService(repo)
+    service.update_shop(
+        chat_id=-100302,
+        items=[
+            {
+                "item_key": "leaderboard_title",
+                "title": "积分榜头衔",
+                "description": "申请头衔",
+                "item_type": "leaderboard_title",
+                "price_points": 30,
+                "stock": None,
+                "enabled": True,
+                "meta": {"title_mode": "custom", "fixed_title": "积分榜之星", "auto_approve": True},
+            }
+        ],
+    )
+    repo.adjust_points(chat_id=-100302, user_id=42, amount=50, event_type="admin_adjust", operator="test")
+    redemption = service.redeem(chat_id=-100302, user_id=42, item_key="leaderboard_title")["redemption"]
+
+    private_reply = AsyncMock()
+    update = SimpleNamespace(
+        effective_chat=SimpleNamespace(id=42, type=Chat.PRIVATE, title=None),
+        effective_user=SimpleNamespace(id=42, username="alice", full_name="Alice"),
+        effective_message=SimpleNamespace(text="自定义头衔"),
+        message=SimpleNamespace(reply_text=private_reply),
+    )
+    context = SimpleNamespace(
+        application=SimpleNamespace(
+            bot_data={
+                "repo": repo,
+                "user_sessions": {"42": {"recent_chat_id": -100302, "recent_chat_title": "积分群", "pending_custom_title": {"redemption_id": redemption["id"], "chat_id": -100302}}},
+            }
+        ),
+        bot=SimpleNamespace(
+            username="test_bot",
+            get_me=AsyncMock(return_value=SimpleNamespace(id=999)),
+            get_chat_member=AsyncMock(return_value=SimpleNamespace(status="creator", is_anonymous=False)),
+            set_chat_administrator_custom_title=AsyncMock(),
+        ),
+    )
+
+    asyncio.run(on_private_text(update, context))
+
+    context.bot.set_chat_administrator_custom_title.assert_awaited_once_with(chat_id=-100302, user_id=42, custom_title="自定义头衔")
+    assert "自动生效" in private_reply.await_args.args[0]
+
+
 def test_private_transfer_flow_completes_with_callbacks_and_text(tmp_path):
     repo = make_repo(tmp_path)
     chat_ref = ChatRef(chat_id=-100301, type=Chat.SUPERGROUP, title="积分群")

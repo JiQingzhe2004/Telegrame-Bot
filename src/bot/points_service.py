@@ -6,6 +6,17 @@ from typing import Any
 
 from bot.domain.models import ChatSettings
 from bot.storage.repo import BotRepository
+from bot.title_redemption_service import (
+    TITLE_MODE_CUSTOM,
+    TITLE_MODE_FIXED,
+    TITLE_STATUS_ACTIVE,
+    TITLE_STATUS_PENDING,
+    TITLE_STATUS_PENDING_INPUT,
+    build_redemption_payload,
+    dump_title_shop_meta,
+    parse_redemption_payload,
+    parse_title_shop_meta,
+)
 from bot.utils.time import to_iso, utc_now
 
 
@@ -51,7 +62,10 @@ DEFAULT_SHOP_ITEMS = [
         "price_points": 30,
         "stock": None,
         "enabled": True,
-        "meta_json": json.dumps({"title": "积分榜之星"}, ensure_ascii=False),
+        "meta_json": json.dumps(
+            {"title": "积分榜之星", "fixed_title": "积分榜之星", "title_mode": "fixed", "auto_approve": False},
+            ensure_ascii=False,
+        ),
     },
     {
         "item_key": "welcome_bonus",
@@ -89,6 +103,26 @@ class PointsService:
 
     def get_checkin_state(self, chat_id: int, user_id: int) -> dict[str, Any]:
         return self.repo.get_checkin_state(chat_id, user_id)
+
+    @staticmethod
+    def _parse_meta(raw: str | None) -> dict[str, Any]:
+        if not raw:
+            return {}
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    @staticmethod
+    def _serialize_shop_item(item: dict[str, Any]) -> dict[str, Any]:
+        meta = parse_title_shop_meta(item) if str(item.get("item_type")) == "leaderboard_title" else PointsService._parse_meta(item.get("meta_json"))
+        return {**item, "meta": meta}
+
+    @staticmethod
+    def _serialize_redemption(redemption: dict[str, Any]) -> dict[str, Any]:
+        payload = parse_redemption_payload(redemption)
+        return {**redemption, "payload": payload}
 
     def checkin(self, chat_id: int, user_id: int, settings: ChatSettings) -> dict[str, Any]:
         self.ensure_defaults(chat_id)
@@ -211,7 +245,7 @@ class PointsService:
 
     def list_shop(self, chat_id: int) -> list[dict[str, Any]]:
         self.ensure_defaults(chat_id)
-        return self.repo.list_shop_items(chat_id)
+        return [self._serialize_shop_item(item) for item in self.repo.list_shop_items(chat_id)]
 
     def update_shop(self, chat_id: int, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         self.ensure_defaults(chat_id)
@@ -225,9 +259,11 @@ class PointsService:
                 price_points=int(item["price_points"]),
                 stock=None if item.get("stock") in {None, ""} else int(item["stock"]),
                 enabled=bool(item.get("enabled", True)),
-                meta_json=json.dumps(item.get("meta", {}), ensure_ascii=False),
+                meta_json=dump_title_shop_meta(item)
+                if str(item.get("item_type")) == "leaderboard_title"
+                else json.dumps(item.get("meta", {}), ensure_ascii=False),
             )
-        return self.repo.list_shop_items(chat_id)
+        return [self._serialize_shop_item(item) for item in self.repo.list_shop_items(chat_id)]
 
     def redeem(self, chat_id: int, user_id: int, item_key: str) -> dict[str, Any]:
         self.ensure_defaults(chat_id)
@@ -248,6 +284,17 @@ class PointsService:
         status = "pending" if item["item_type"] == "leaderboard_title" else "active"
         expires_at = to_iso(utc_now() + timedelta(days=7)) if item["item_type"] == "welcome_bonus" else None
         reward_payload = item.get("meta_json")
+        if item["item_type"] == "leaderboard_title":
+            meta = parse_title_shop_meta(item)
+            title_mode = str(meta["title_mode"])
+            approval_status = TITLE_STATUS_PENDING_INPUT if title_mode == TITLE_MODE_CUSTOM else TITLE_STATUS_PENDING
+            status = approval_status
+            reward_payload = build_redemption_payload(
+                title_mode=title_mode,
+                fixed_title=str(meta["fixed_title"]),
+                requested_title="",
+                approval_status=approval_status,
+            )
         redemption = self.repo.save_redemption(
             chat_id=chat_id,
             user_id=user_id,
@@ -269,10 +316,14 @@ class PointsService:
                 enabled=bool(item.get("enabled")),
                 meta_json=item.get("meta_json"),
             )
-        return {"redemption": redemption, "balance_after": debit["balance_after"], "item": item}
+        return {
+            "redemption": self._serialize_redemption(self.repo.get_redemption(int(redemption["id"])) or redemption),
+            "balance_after": debit["balance_after"],
+            "item": self._serialize_shop_item(item),
+        }
 
     def list_redemptions(self, chat_id: int, user_id: int | None = None) -> list[dict[str, Any]]:
-        return self.repo.list_redemptions(chat_id, user_id=user_id)
+        return [self._serialize_redemption(row) for row in self.repo.list_redemptions(chat_id, user_id=user_id)]
 
     def get_active_welcome_bonus(self, chat_id: int, user_id: int) -> dict[str, Any] | None:
         return self.repo.get_active_welcome_bonus(chat_id, user_id)
@@ -281,7 +332,26 @@ class PointsService:
         return self.repo.update_redemption_status(redemption_id, "consumed")
 
     def update_redemption_status(self, redemption_id: int, status: str) -> dict[str, Any] | None:
-        return self.repo.update_redemption_status(redemption_id, status)
+        current = self.repo.get_redemption(redemption_id)
+        if current is None:
+            return None
+        if str(current.get("item_type")) == "leaderboard_title":
+            payload = parse_redemption_payload(current)
+            row = self.repo.update_redemption(
+                redemption_id,
+                status=status,
+                reward_payload=build_redemption_payload(
+                    title_mode=payload["title_mode"],
+                    fixed_title=payload["fixed_title"],
+                    requested_title=payload["requested_title"],
+                    approval_status=status,
+                    apply_error=payload["apply_error"],
+                    applied_title=payload["applied_title"],
+                ),
+            )
+        else:
+            row = self.repo.update_redemption_status(redemption_id, status)
+        return self._serialize_redemption(row) if row else None
 
     def transfer_points(self, chat_id: int, from_user_id: int, to_user_id: int, amount: int, settings: ChatSettings, operator: str) -> dict[str, Any]:
         if self.repo.get_points_transfer_count_today(chat_id, from_user_id) >= settings.points_transfer_daily_limit:

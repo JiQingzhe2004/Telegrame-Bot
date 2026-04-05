@@ -486,6 +486,48 @@ def test_points_redemption_status_endpoint(tmp_path):
     assert response.json()["data"]["status"] == "active"
 
 
+def test_title_redemption_activation_applies_title(tmp_path):
+    app, repo, runtime_manager = make_app_bundle(tmp_path)
+    repo.upsert_chat(ChatRef(chat_id=1, type="supergroup", title="积分群"))
+    from bot.points_service import PointsService
+
+    service = PointsService(repo)
+    service.update_shop(
+        chat_id=1,
+        items=[
+            {
+                "item_key": "leaderboard_title",
+                "title": "积分榜头衔",
+                "description": "申请头衔",
+                "item_type": "leaderboard_title",
+                "price_points": 30,
+                "stock": None,
+                "enabled": True,
+                "meta": {"title_mode": "fixed", "fixed_title": "积分榜之星", "auto_approve": False},
+            }
+        ],
+    )
+    redemption = service.redeem(chat_id=1, user_id=2, item_key="leaderboard_title")["redemption"]
+    runtime_manager._tg_app.bot.get_me = AsyncMock(return_value=SimpleNamespace(id=999))
+    runtime_manager._tg_app.bot.get_chat_member = AsyncMock(return_value=SimpleNamespace(status="creator", is_anonymous=False))
+    runtime_manager._tg_app.bot.set_chat_administrator_custom_title = AsyncMock(return_value=True)
+    client = TestClient(app)
+
+    response = client.post(
+        f"/api/v1/chats/1/points/redemptions/{redemption['id']}/status",
+        headers={"X-Admin-Token": "admin-token"},
+        json={"status": "active"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["status"] == "active"
+    runtime_manager._tg_app.bot.set_chat_administrator_custom_title.assert_awaited_once_with(
+        chat_id=1,
+        user_id=2,
+        custom_title="积分榜之星",
+    )
+
+
 def test_sync_telegram_commands_endpoint(tmp_path):
     app, _, runtime_manager = make_app_bundle(tmp_path)
     client = TestClient(app)
