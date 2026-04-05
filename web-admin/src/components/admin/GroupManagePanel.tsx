@@ -61,6 +61,21 @@ function getStatusBadgeClass(status: string | null) {
   return "";
 }
 
+function getMemberProtection(member: ChatMemberBrief | null, whitelistValues: Set<string>, adminIds: Set<number>) {
+  if (!member) return { protected: false, reason: "" };
+  if (member.is_bot) {
+    return { protected: true, reason: "机器人账号受保护，不能执行禁言、封禁或踢出。" };
+  }
+  const status = String(member.current_status || "").toLowerCase();
+  if (adminIds.has(member.user_id) || status === "administrator" || status === "creator" || status === "owner") {
+    return { protected: true, reason: "群主和管理员受保护，不能执行禁言、封禁或踢出。" };
+  }
+  if (member.is_whitelisted || whitelistValues.has(String(member.user_id)) || (member.username && whitelistValues.has(member.username))) {
+    return { protected: true, reason: "白名单成员受保护，不能执行禁言、封禁或踢出。" };
+  }
+  return { protected: false, reason: "" };
+}
+
 export function GroupManagePanel({
   data,
   actions,
@@ -104,6 +119,12 @@ export function GroupManagePanel({
   );
 
   const totalPages = Math.max(1, Math.ceil(data.members.length / PAGE_SIZE));
+  const whitelistValues = useMemo(() => new Set(data.whitelist.map((item) => item.value)), [data.whitelist]);
+  const adminIds = useMemo(() => new Set((data.overview?.administrators ?? []).map((item) => item.user_id)), [data.overview?.administrators]);
+  const activeMemberProtection = useMemo(
+    () => getMemberProtection(activeMember, whitelistValues, adminIds),
+    [activeMember, whitelistValues, adminIds],
+  );
 
   const openMemberDialog = (member: ChatMemberBrief) => {
     setActiveMember(member);
@@ -250,6 +271,7 @@ export function GroupManagePanel({
               ) : (
                 pagedMembers.map((row) => {
                   const displayName = `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim() || "-";
+                  const protection = getMemberProtection(row, whitelistValues, adminIds);
                   return (
                     <TableRow key={row.user_id}>
                       <TableCell className="max-w-[160px] truncate font-medium">{displayName}</TableCell>
@@ -294,6 +316,9 @@ export function GroupManagePanel({
                             {refreshingMemberId === String(row.user_id) ? "刷新中..." : "刷新"}
                           </Button>
                         </div>
+                        {protection.protected ? (
+                          <p className="mt-1 text-xs text-amber-600 dark:text-amber-300">{protection.reason}</p>
+                        ) : null}
                       </TableCell>
                     </TableRow>
                   );
@@ -333,6 +358,9 @@ export function GroupManagePanel({
                 <span className="font-medium">{`${activeMember.first_name ?? ""} ${activeMember.last_name ?? ""}`.trim() || activeMember.username || "-"}</span>
                 <span className="text-sm text-muted-foreground">User ID: {activeMember.user_id}</span>
                 <span className="text-sm text-muted-foreground">当前状态：{translateChatMemberStatus(activeMember.current_status)}</span>
+                {activeMemberProtection.protected ? (
+                  <span className="text-sm text-amber-600 dark:text-amber-300">{activeMemberProtection.reason}</span>
+                ) : null}
               </div>
             </div>
           ) : null}
@@ -350,7 +378,7 @@ export function GroupManagePanel({
                 <Input type="number" value={muteSeconds} onChange={(e) => setMuteSeconds(e.target.value)} />
               </div>
               <div className="flex flex-wrap gap-3">
-              <Button onClick={() => void handleMemberAction(() => apiActions.mute(String(activeMember?.user_id ?? ""), Number(muteSeconds)), "禁言成功")} disabled={!activeMember}>
+              <Button onClick={() => void handleMemberAction(() => apiActions.mute(String(activeMember?.user_id ?? ""), Number(muteSeconds)), "禁言成功")} disabled={!activeMember || activeMemberProtection.protected}>
                 <Ban className="mr-2 h-4 w-4" />
                 禁言
               </Button>
@@ -364,11 +392,11 @@ export function GroupManagePanel({
             <TabsContent value="ban" className="space-y-4">
               <p className="text-sm text-muted-foreground">这里是高风险动作，请确认后再执行。</p>
               <div className="flex flex-wrap gap-3">
-              <Button variant="destructive" onClick={() => void handleMemberAction(() => apiActions.ban(String(activeMember?.user_id ?? "")), "封禁成功")} disabled={!activeMember}>
+              <Button variant="destructive" onClick={() => void handleMemberAction(() => apiActions.ban(String(activeMember?.user_id ?? "")), "封禁成功")} disabled={!activeMember || activeMemberProtection.protected}>
                 <ShieldX className="mr-2 h-4 w-4" />
                 封禁
               </Button>
-              <Button variant="destructive" onClick={() => void handleMemberAction(() => apiActions.kick(String(activeMember?.user_id ?? "")), "踢出群成功")} disabled={!activeMember}>
+              <Button variant="destructive" onClick={() => void handleMemberAction(() => apiActions.kick(String(activeMember?.user_id ?? "")), "踢出群成功")} disabled={!activeMember || activeMemberProtection.protected}>
                 <UserRoundX className="mr-2 h-4 w-4" />
                 踢出群
               </Button>

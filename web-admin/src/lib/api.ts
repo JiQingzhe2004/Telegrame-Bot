@@ -195,6 +195,8 @@ export type ChatMemberBrief = {
   username: string | null;
   first_name: string | null;
   last_name: string | null;
+  is_bot: boolean;
+  is_whitelisted: boolean;
   last_message_at: string | null;
   strike_score: number;
   current_status: string | null;

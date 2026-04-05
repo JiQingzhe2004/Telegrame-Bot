@@ -325,7 +325,11 @@ def test_admin_members_endpoint_exposes_current_status(tmp_path):
     )
     repo.save_admin_action(1, "ban_member", "applied", target={"user_id": 2}, user_id=2)
     runtime_manager._tg_app.bot.get_chat_member = AsyncMock(
-        return_value=SimpleNamespace(status="restricted", until_date=None)
+        return_value=SimpleNamespace(
+            status="restricted",
+            until_date=None,
+            user=SimpleNamespace(id=2, username="alice", is_bot=False, full_name="Alice"),
+        )
     )
     client = TestClient(app)
 
@@ -336,6 +340,8 @@ def test_admin_members_endpoint_exposes_current_status(tmp_path):
     assert row["user_id"] == 2
     assert row["current_status"] == "restricted"
     assert row["current_status_until_date"] is None
+    assert row["is_bot"] is False
+    assert row["is_whitelisted"] is False
 
 
 def test_admin_kick_member_endpoint(tmp_path):
@@ -368,6 +374,44 @@ def test_admin_kick_member_endpoint(tmp_path):
     data = response.json()["data"]
     assert data["applied"] is True
     assert data["permission_ok"] is True
+
+
+def test_admin_ban_member_endpoint_rejects_protected_bot_target(tmp_path):
+    app, repo, runtime_manager = make_app_bundle(tmp_path)
+    repo.upsert_chat(ChatRef(chat_id=1, type="supergroup", title="测试群"))
+    runtime_manager._tg_app.bot.get_chat_member = AsyncMock(
+        side_effect=[
+            SimpleNamespace(
+                status="administrator",
+                can_change_info=True,
+                can_delete_messages=True,
+                can_restrict_members=True,
+                can_invite_users=True,
+                can_pin_messages=True,
+                can_promote_members=True,
+                can_manage_video_chats=True,
+                can_manage_chat=True,
+                can_post_stories=False,
+                can_edit_stories=False,
+                can_delete_stories=False,
+                is_anonymous=False,
+            ),
+            SimpleNamespace(
+                status="member",
+                user=SimpleNamespace(id=2, username="helper_bot", is_bot=True, full_name="Helper Bot"),
+            ),
+        ]
+    )
+    runtime_manager._tg_app.bot.ban_chat_member = AsyncMock(return_value=True)
+    client = TestClient(app)
+
+    response = client.post("/api/v1/chats/1/admin/members/2/ban", headers={"X-Admin-Token": "admin-token"})
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["applied"] is False
+    assert data["action_supported"] is False
+    assert data["reason"] == "protected_target_bot"
 
 
 def test_points_endpoints(tmp_path):

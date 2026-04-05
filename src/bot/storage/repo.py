@@ -1419,6 +1419,7 @@ class BotRepository:
                   u.username AS username,
                   u.first_name AS first_name,
                   u.last_name AS last_name,
+                  COALESCE(u.is_bot, 0) AS is_bot,
                   lm.last_message_at AS last_message_at,
                   COALESCE(us.score, 0) AS strike_score
                 FROM ids

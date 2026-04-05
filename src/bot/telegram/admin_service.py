@@ -87,6 +87,26 @@ class TelegramAdminService:
             reason=reason,
         )
 
+    async def _protected_target_result(self, chat_id: int, user_id: int) -> AdminActionResult | None:
+        try:
+            member = await self.bot.get_chat_member(chat_id=chat_id, user_id=user_id)
+        except TelegramError:
+            return None
+
+        status = str(getattr(member, "status", "") or "").lower()
+        user = getattr(member, "user", None)
+        username = getattr(user, "username", None)
+        is_bot = bool(getattr(user, "is_bot", False))
+        is_whitelisted = self.repo.is_whitelisted(chat_id, user_id, username)
+
+        if is_bot:
+            return self._unsupported("protected_target_bot")
+        if status in {"administrator", "creator", "owner"}:
+            return self._unsupported("protected_target_admin")
+        if is_whitelisted:
+            return self._unsupported("protected_target_whitelist")
+        return None
+
     async def overview(self, chat_id: int) -> dict[str, Any]:
         chat = await self.bot.get_chat(chat_id=chat_id)
         count = await self.bot.get_chat_member_count(chat_id=chat_id)
@@ -117,14 +137,21 @@ class TelegramAdminService:
         try:
             member = await self.bot.get_chat_member(chat_id=chat_id, user_id=user_id)
             until_date = getattr(member, "until_date", None)
+            status = str(getattr(member, "status", "") or "unknown")
+            user = getattr(member, "user", None)
+            username = getattr(user, "username", None)
             return {
-                "current_status": str(getattr(member, "status", "") or "unknown"),
+                "current_status": status,
                 "current_status_until_date": to_iso(until_date) if until_date else None,
+                "is_bot": bool(getattr(user, "is_bot", False)),
+                "is_whitelisted": self.repo.is_whitelisted(chat_id, user_id, username),
             }
         except TelegramError:
             return {
                 "current_status": "unknown",
                 "current_status_until_date": None,
+                "is_bot": False,
+                "is_whitelisted": False,
             }
 
     async def list_members(self, chat_id: int, limit: int = 200, query: str | None = None) -> list[dict[str, Any]]:
@@ -139,6 +166,7 @@ class TelegramAdminService:
     async def get_member(self, chat_id: int, user_id: int) -> AdminActionResult:
         try:
             member = await self.bot.get_chat_member(chat_id=chat_id, user_id=user_id)
+            username = member.user.username
             return AdminActionResult(
                 action_supported=True,
                 permission_required=[],
@@ -148,6 +176,7 @@ class TelegramAdminService:
                 data={
                     "status": member.status,
                     "is_bot": member.user.is_bot,
+                    "is_whitelisted": self.repo.is_whitelisted(chat_id, user_id, username),
                     "username": member.user.username,
                     "full_name": member.user.full_name,
                     "user_id": member.user.id,
@@ -214,6 +243,9 @@ class TelegramAdminService:
         caps = await self._capabilities(chat_id)
         if not caps.can_restrict_members:
             return self._deny(["can_restrict_members"], "missing_permission")
+        protected = await self._protected_target_result(chat_id, user_id)
+        if protected is not None:
+            return protected
         try:
             await self.bot.restrict_chat_member(
                 chat_id=chat_id,
@@ -254,6 +286,9 @@ class TelegramAdminService:
         caps = await self._capabilities(chat_id)
         if not caps.can_restrict_members:
             return self._deny(["can_restrict_members"], "missing_permission")
+        protected = await self._protected_target_result(chat_id, user_id)
+        if protected is not None:
+            return protected
         try:
             await self.bot.ban_chat_member(chat_id=chat_id, user_id=user_id)
             self.repo.save_admin_action(chat_id, "ban_member", "applied", target={"user_id": user_id}, user_id=user_id)
@@ -276,6 +311,9 @@ class TelegramAdminService:
         caps = await self._capabilities(chat_id)
         if not caps.can_restrict_members:
             return self._deny(["can_restrict_members"], "missing_permission")
+        protected = await self._protected_target_result(chat_id, user_id)
+        if protected is not None:
+            return protected
         try:
             await self.bot.ban_chat_member(
                 chat_id=chat_id,

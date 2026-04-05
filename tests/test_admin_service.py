@@ -12,6 +12,7 @@ def make_service(can_delete_messages: bool = True):
     bot = AsyncMock()
     bot.get_me.return_value = SimpleNamespace(id=999, username="bot")
     bot.get_chat_member.return_value = SimpleNamespace(
+        user=SimpleNamespace(id=2, username="alice", is_bot=False, full_name="Alice"),
         can_change_info=True,
         can_delete_messages=can_delete_messages,
         can_restrict_members=True,
@@ -25,7 +26,10 @@ def make_service(can_delete_messages: bool = True):
         can_delete_stories=False,
         is_anonymous=False,
     )
-    repo = SimpleNamespace(save_admin_action=lambda *args, **kwargs: 1)
+    repo = SimpleNamespace(
+        save_admin_action=lambda *args, **kwargs: 1,
+        is_whitelisted=lambda chat_id, user_id, username: False,
+    )
     return TelegramAdminService(bot=bot, repo=repo), bot
 
 
@@ -59,7 +63,10 @@ def test_owner_bot_has_full_capabilities_for_admin_actions():
         status="creator",
         is_anonymous=False,
     )
-    repo = SimpleNamespace(save_admin_action=lambda *args, **kwargs: 1)
+    repo = SimpleNamespace(
+        save_admin_action=lambda *args, **kwargs: 1,
+        is_whitelisted=lambda chat_id, user_id, username: False,
+    )
     svc = TelegramAdminService(bot=bot, repo=repo)
 
     result = asyncio.run(svc.delete_message(chat_id=1, message_id=2))
@@ -120,17 +127,24 @@ def test_list_members_includes_current_status_from_telegram():
             "username": "alice",
             "first_name": "Alice",
             "last_name": None,
+            "is_bot": False,
             "last_message_at": None,
             "strike_score": 1,
         }
     ]
-    bot.get_chat_member.return_value = SimpleNamespace(status="restricted", until_date=None)
+    bot.get_chat_member.return_value = SimpleNamespace(
+        status="restricted",
+        until_date=None,
+        user=SimpleNamespace(id=2, username="alice", is_bot=False, full_name="Alice"),
+    )
 
     rows = asyncio.run(svc.list_members(chat_id=1))
 
     assert len(rows) == 1
     assert rows[0]["current_status"] == "restricted"
     assert rows[0]["current_status_until_date"] is None
+    assert rows[0]["is_bot"] is False
+    assert rows[0]["is_whitelisted"] is False
 
 
 def test_kick_member_temporarily_bans_then_unbans():
@@ -142,3 +156,95 @@ def test_kick_member_temporarily_bans_then_unbans():
     assert result.applied is True
     bot.ban_chat_member.assert_awaited_once()
     bot.unban_chat_member.assert_awaited_once_with(chat_id=1, user_id=2, only_if_banned=True)
+
+
+def test_ban_member_rejects_bot_target():
+    svc, bot = make_service()
+    bot.get_chat_member.side_effect = [
+        SimpleNamespace(
+            can_change_info=True,
+            can_delete_messages=True,
+            can_restrict_members=True,
+            can_invite_users=True,
+            can_pin_messages=True,
+            can_promote_members=True,
+            can_manage_video_chats=True,
+            can_manage_chat=True,
+            can_post_stories=False,
+            can_edit_stories=False,
+            can_delete_stories=False,
+            is_anonymous=False,
+        ),
+        SimpleNamespace(
+            status="member",
+            user=SimpleNamespace(id=2, username="helper_bot", is_bot=True, full_name="Helper Bot"),
+        ),
+    ]
+
+    result = asyncio.run(svc.ban_member(chat_id=1, user_id=2))
+
+    assert result.action_supported is False
+    assert result.reason == "protected_target_bot"
+    bot.ban_chat_member.assert_not_awaited()
+
+
+def test_mute_member_rejects_admin_target():
+    svc, bot = make_service()
+    bot.get_chat_member.side_effect = [
+        SimpleNamespace(
+            can_change_info=True,
+            can_delete_messages=True,
+            can_restrict_members=True,
+            can_invite_users=True,
+            can_pin_messages=True,
+            can_promote_members=True,
+            can_manage_video_chats=True,
+            can_manage_chat=True,
+            can_post_stories=False,
+            can_edit_stories=False,
+            can_delete_stories=False,
+            is_anonymous=False,
+        ),
+        SimpleNamespace(
+            status="administrator",
+            user=SimpleNamespace(id=2, username="admin", is_bot=False, full_name="Admin"),
+        ),
+    ]
+
+    result = asyncio.run(svc.mute_member(chat_id=1, user_id=2, duration_seconds=600))
+
+    assert result.action_supported is False
+    assert result.reason == "protected_target_admin"
+    bot.restrict_chat_member.assert_not_awaited()
+
+
+def test_kick_member_rejects_whitelist_target():
+    svc, bot = make_service()
+    svc.repo.is_whitelisted = lambda chat_id, user_id, username: True
+    bot.get_chat_member.side_effect = [
+        SimpleNamespace(
+            can_change_info=True,
+            can_delete_messages=True,
+            can_restrict_members=True,
+            can_invite_users=True,
+            can_pin_messages=True,
+            can_promote_members=True,
+            can_manage_video_chats=True,
+            can_manage_chat=True,
+            can_post_stories=False,
+            can_edit_stories=False,
+            can_delete_stories=False,
+            is_anonymous=False,
+        ),
+        SimpleNamespace(
+            status="member",
+            user=SimpleNamespace(id=2, username="alice", is_bot=False, full_name="Alice"),
+        ),
+    ]
+
+    result = asyncio.run(svc.kick_member(chat_id=1, user_id=2))
+
+    assert result.action_supported is False
+    assert result.reason == "protected_target_whitelist"
+    bot.ban_chat_member.assert_not_awaited()
+    bot.unban_chat_member.assert_not_awaited()
