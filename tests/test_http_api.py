@@ -348,21 +348,27 @@ def test_admin_kick_member_endpoint(tmp_path):
     app, repo, runtime_manager = make_app_bundle(tmp_path)
     repo.upsert_chat(ChatRef(chat_id=1, type="supergroup", title="测试群"))
     runtime_manager._tg_app.bot.get_chat_member = AsyncMock(
-        return_value=SimpleNamespace(
-            status="administrator",
-            can_change_info=True,
-            can_delete_messages=True,
-            can_restrict_members=True,
-            can_invite_users=True,
-            can_pin_messages=True,
-            can_promote_members=True,
-            can_manage_video_chats=True,
-            can_manage_chat=True,
-            can_post_stories=False,
-            can_edit_stories=False,
-            can_delete_stories=False,
-            is_anonymous=False,
-        )
+        side_effect=[
+            SimpleNamespace(
+                status="administrator",
+                can_change_info=True,
+                can_delete_messages=True,
+                can_restrict_members=True,
+                can_invite_users=True,
+                can_pin_messages=True,
+                can_promote_members=True,
+                can_manage_video_chats=True,
+                can_manage_chat=True,
+                can_post_stories=False,
+                can_edit_stories=False,
+                can_delete_stories=False,
+                is_anonymous=False,
+            ),
+            SimpleNamespace(
+                status="member",
+                user=SimpleNamespace(id=2, username="alice", is_bot=False, full_name="Alice"),
+            ),
+        ]
     )
     runtime_manager._tg_app.bot.ban_chat_member = AsyncMock(return_value=True)
     runtime_manager._tg_app.bot.unban_chat_member = AsyncMock(return_value=True)
