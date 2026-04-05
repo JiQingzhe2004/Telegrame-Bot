@@ -507,6 +507,7 @@ def test_title_redemption_activation_applies_title(tmp_path):
             }
         ],
     )
+    repo.adjust_points(chat_id=1, user_id=2, amount=100, event_type="admin_adjust", operator="test")
     redemption = service.redeem(chat_id=1, user_id=2, item_key="leaderboard_title")["redemption"]
     runtime_manager._tg_app.bot.get_me = AsyncMock(return_value=SimpleNamespace(id=999))
     runtime_manager._tg_app.bot.get_chat_member = AsyncMock(return_value=SimpleNamespace(status="creator", is_anonymous=False))

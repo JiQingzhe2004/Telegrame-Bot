@@ -950,7 +950,7 @@ class BotRepository:
                     SELECT r.id, r.chat_id, r.user_id, r.item_id, r.price_points, r.status, r.reward_payload, r.expires_at, r.created_at,
                            s.item_key, s.title AS item_title, s.item_type
                     FROM chat_points_redemptions r
-                    JOIN chat_points_shop_items s ON s.id = r.item_id
+                    LEFT JOIN chat_points_shop_items s ON s.id = r.item_id
                     WHERE r.chat_id = ?
                     ORDER BY id DESC
                     LIMIT ?
@@ -963,7 +963,7 @@ class BotRepository:
                     SELECT r.id, r.chat_id, r.user_id, r.item_id, r.price_points, r.status, r.reward_payload, r.expires_at, r.created_at,
                            s.item_key, s.title AS item_title, s.item_type
                     FROM chat_points_redemptions r
-                    JOIN chat_points_shop_items s ON s.id = r.item_id
+                    LEFT JOIN chat_points_shop_items s ON s.id = r.item_id
                     WHERE r.chat_id = ? AND r.user_id = ?
                     ORDER BY id DESC
                     LIMIT ?
@@ -979,7 +979,7 @@ class BotRepository:
                 SELECT r.id, r.chat_id, r.user_id, r.item_id, r.price_points, r.status, r.reward_payload, r.expires_at, r.created_at,
                        s.item_key, s.title AS item_title, s.item_type, s.meta_json
                 FROM chat_points_redemptions r
-                JOIN chat_points_shop_items s ON s.id = r.item_id
+                LEFT JOIN chat_points_shop_items s ON s.id = r.item_id
                 WHERE r.id = ?
                 """,
                 (redemption_id,),
