@@ -390,11 +390,12 @@ def test_points_cmd_sends_private_balance_instead_of_group_balance(tmp_path):
     )
     repo.adjust_points(chat_id=-100200, user_id=42, amount=8, event_type="admin_adjust", operator="test")
     group_reply = AsyncMock()
-    bot = SimpleNamespace(send_message=AsyncMock(), username="test_bot")
+    bot = SimpleNamespace(send_message=AsyncMock(), delete_message=AsyncMock(), username="test_bot")
     update = SimpleNamespace(
         effective_chat=SimpleNamespace(id=-100200, type=Chat.SUPERGROUP, title="积分群"),
         effective_user=SimpleNamespace(id=42, username="alice"),
-        message=SimpleNamespace(reply_text=group_reply),
+        effective_message=SimpleNamespace(message_id=88, reply_text=group_reply),
+        message=SimpleNamespace(message_id=88, reply_text=group_reply),
     )
     context = SimpleNamespace(
         application=SimpleNamespace(bot_data={"repo": repo}),
@@ -409,6 +410,7 @@ def test_points_cmd_sends_private_balance_instead_of_group_balance(tmp_path):
     assert "当前余额：8" in args["text"]
     group_reply.assert_awaited_once()
     assert "积分明细已私聊发送" in group_reply.await_args.args[0]
+    bot.delete_message.assert_awaited_once_with(chat_id=-100200, message_id=88)
 
 
 def test_points_self_callback_only_allows_self(tmp_path):
@@ -481,11 +483,12 @@ def test_pay_cmd_sends_private_notice_to_recipient(tmp_path):
     )
     repo.adjust_points(chat_id=-100203, user_id=42, amount=10, event_type="admin_adjust", operator="test")
     reply_text = AsyncMock()
-    bot = SimpleNamespace(send_message=AsyncMock())
+    bot = SimpleNamespace(send_message=AsyncMock(), delete_message=AsyncMock())
     update = SimpleNamespace(
         effective_chat=SimpleNamespace(id=-100203, type=Chat.SUPERGROUP, title="积分群"),
         effective_user=SimpleNamespace(id=42, username="alice", full_name="Alice"),
-        message=SimpleNamespace(reply_text=reply_text),
+        effective_message=SimpleNamespace(message_id=77, reply_text=reply_text),
+        message=SimpleNamespace(message_id=77, reply_text=reply_text),
     )
     context = SimpleNamespace(
         application=SimpleNamespace(bot_data={"repo": repo}),
@@ -499,6 +502,7 @@ def test_pay_cmd_sends_private_notice_to_recipient(tmp_path):
     assert bot.send_message.await_args.kwargs["chat_id"] == 43
     assert "积分到账通知" in bot.send_message.await_args.kwargs["text"]
     assert "到账积分：3" in bot.send_message.await_args.kwargs["text"]
+    bot.delete_message.assert_awaited_once_with(chat_id=-100203, message_id=77)
 
 
 def test_points_cmd_private_chat_no_longer_loops_back_to_group(tmp_path):

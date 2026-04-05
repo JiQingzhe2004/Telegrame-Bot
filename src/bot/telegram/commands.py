@@ -77,6 +77,25 @@ def _reply_target(update: Update):
     return getattr(update, "message", None) or effective
 
 
+async def _maybe_delete_group_command_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat = getattr(update, "effective_chat", None)
+    message = getattr(update, "effective_message", None) or getattr(update, "message", None)
+    if chat is None or message is None:
+        return
+    if chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
+        return
+    message_id = getattr(message, "message_id", None)
+    if not message_id:
+        return
+    delete_message = getattr(context.bot, "delete_message", None)
+    if delete_message is None:
+        return
+    try:
+        await delete_message(chat_id=chat.id, message_id=int(message_id))
+    except TelegramError:
+        return
+
+
 def _session_store(context: ContextTypes.DEFAULT_TYPE) -> dict[str, dict[str, Any]]:
     bucket = context.application.bot_data.get("user_sessions")
     if not isinstance(bucket, dict):
@@ -1471,6 +1490,7 @@ async def points_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         user_id=update.effective_user.id,
     )
     await update.message.reply_text(notice, reply_markup=markup)
+    await _maybe_delete_group_command_message(update, context)
 
 
 async def rank_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1498,6 +1518,7 @@ async def rank_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             user_id=update.effective_user.id if update.effective_user else None,
         ),
     )
+    await _maybe_delete_group_command_message(update, context)
 
 
 async def pay_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1580,6 +1601,7 @@ async def pay_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 action=USER_ACTION_PAY,
             ),
         )
+        await _maybe_delete_group_command_message(update, context)
         return
     await update.message.reply_text(
         "转账我已经切到私聊里处理了，点下面按钮就能一步步完成。",
@@ -1590,10 +1612,12 @@ async def pay_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             action=USER_ACTION_PAY,
         ),
     )
+    await _maybe_delete_group_command_message(update, context)
 
 
 async def hongbao_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _start_hongbao_flow(update, context)
+    await _maybe_delete_group_command_message(update, context)
 
 
 async def points_add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1684,6 +1708,7 @@ async def checkin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             action=USER_ACTION_HOME,
         ),
     )
+    await _maybe_delete_group_command_message(update, context)
 
 
 async def tasks_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1718,6 +1743,7 @@ async def tasks_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             action=USER_ACTION_TASKS,
         ),
     )
+    await _maybe_delete_group_command_message(update, context)
 
 
 async def shop_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1750,6 +1776,7 @@ async def shop_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             action=USER_ACTION_SHOP,
         ),
     )
+    await _maybe_delete_group_command_message(update, context)
 
 
 async def redeem_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1823,3 +1850,4 @@ async def redeem_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             action=USER_ACTION_SHOP,
         ),
     )
+    await _maybe_delete_group_command_message(update, context)
