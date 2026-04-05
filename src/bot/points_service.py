@@ -75,9 +75,16 @@ class PointsService:
         return utc_now().strftime("%Y-%m-%d")
 
     def ensure_defaults(self, chat_id: int) -> None:
+        existing_task_keys = {str(item["task_key"]) for item in self.repo.list_points_tasks(chat_id)}
         for task in DEFAULT_TASKS:
+            if str(task["task_key"]) in existing_task_keys:
+                continue
             self.repo.upsert_points_task(chat_id=chat_id, **task)
+
+        existing_item_keys = {str(item["item_key"]) for item in self.repo.list_shop_items(chat_id)}
         for item in DEFAULT_SHOP_ITEMS:
+            if str(item["item_key"]) in existing_item_keys:
+                continue
             self.repo.upsert_shop_item(chat_id=chat_id, **item)
 
     def get_checkin_state(self, chat_id: int, user_id: int) -> dict[str, Any]:

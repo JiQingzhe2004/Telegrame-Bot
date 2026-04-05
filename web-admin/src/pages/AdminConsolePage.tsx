@@ -808,39 +808,67 @@ export function AdminConsolePage({
             await Promise.all([pointsBalanceQuery.refetch(), pointsCheckinStateQuery.refetch(), pointsTasksQuery.refetch()]);
           }}
           onSaveConfig={async (payload) => {
-            await api.updatePointsConfig(chatId, adminToken, payload);
-            toast.success("积分配置已更新");
-            await pointsConfigQuery.refetch();
+            try {
+              await api.updatePointsConfig(chatId, adminToken, payload);
+              toast.success("积分配置已更新");
+              await pointsConfigQuery.refetch();
+            } catch (error) {
+              toast.error(getErrorMessage(error));
+            }
           }}
           onAdjustPoints={async (payload) => {
-            await api.adjustPoints(chatId, adminToken, payload);
-            toast.success("积分已调整");
-            await Promise.all([pointsLeaderboardQuery.refetch(), pointsLedgerQuery.refetch(), pointsBalanceQuery.refetch(), pointsRedemptionsQuery.refetch()]);
+            try {
+              await api.adjustPoints(chatId, adminToken, payload);
+              toast.success("积分已调整");
+              await Promise.all([pointsLeaderboardQuery.refetch(), pointsLedgerQuery.refetch(), pointsBalanceQuery.refetch(), pointsRedemptionsQuery.refetch()]);
+            } catch (error) {
+              toast.error(getErrorMessage(error));
+            }
           }}
           onCheckin={async (userId) => {
-            await api.checkinUser(chatId, adminToken, userId);
-            toast.success("签到已执行");
-            await Promise.all([pointsCheckinStateQuery.refetch(), pointsBalanceQuery.refetch(), pointsLedgerQuery.refetch(), pointsTasksQuery.refetch()]);
+            try {
+              await api.checkinUser(chatId, adminToken, userId);
+              toast.success("签到已执行");
+              await Promise.all([pointsCheckinStateQuery.refetch(), pointsBalanceQuery.refetch(), pointsLedgerQuery.refetch(), pointsTasksQuery.refetch()]);
+            } catch (error) {
+              toast.error(getErrorMessage(error));
+            }
           }}
           onSaveTaskConfig={async (items) => {
-            await api.updatePointsTaskConfig(chatId, adminToken, items);
-            toast.success("任务配置已更新");
-            await Promise.all([pointsTaskConfigQuery.refetch(), pointsTasksQuery.refetch()]);
+            try {
+              await api.updatePointsTaskConfig(chatId, adminToken, items);
+              toast.success("任务配置已更新");
+              await Promise.all([pointsTaskConfigQuery.refetch(), pointsTasksQuery.refetch()]);
+            } catch (error) {
+              toast.error(getErrorMessage(error));
+            }
           }}
           onSaveShop={async (items) => {
-            await api.updatePointsShop(chatId, adminToken, items);
-            toast.success("商城商品已更新");
-            await Promise.all([pointsShopQuery.refetch(), pointsRedemptionsQuery.refetch()]);
+            try {
+              await api.updatePointsShop(chatId, adminToken, items);
+              toast.success("商城商品已更新");
+              await Promise.all([pointsShopQuery.refetch(), pointsRedemptionsQuery.refetch()]);
+            } catch (error) {
+              toast.error(getErrorMessage(error));
+            }
           }}
           onRedeem={async (userId, itemKey) => {
-            await api.redeemPointsItem(chatId, adminToken, { user_id: userId, item_key: itemKey });
-            toast.success("兑换成功");
-            await Promise.all([pointsBalanceQuery.refetch(), pointsLedgerQuery.refetch(), pointsRedemptionsQuery.refetch(), pointsShopQuery.refetch()]);
+            try {
+              await api.redeemPointsItem(chatId, adminToken, { user_id: userId, item_key: itemKey });
+              toast.success("兑换成功");
+              await Promise.all([pointsBalanceQuery.refetch(), pointsLedgerQuery.refetch(), pointsRedemptionsQuery.refetch(), pointsShopQuery.refetch()]);
+            } catch (error) {
+              toast.error(getErrorMessage(error));
+            }
           }}
           onUpdateRedemptionStatus={async (redemptionId, status) => {
-            await api.updatePointsRedemptionStatus(chatId, adminToken, redemptionId, status);
-            toast.success("兑换状态已更新");
-            await pointsRedemptionsQuery.refetch();
+            try {
+              await api.updatePointsRedemptionStatus(chatId, adminToken, redemptionId, status);
+              toast.success("兑换状态已更新");
+              await pointsRedemptionsQuery.refetch();
+            } catch (error) {
+              toast.error(getErrorMessage(error));
+            }
           }}
         />
       );
