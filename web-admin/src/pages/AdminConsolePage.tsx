@@ -235,6 +235,30 @@ export function AdminConsolePage({
     refetchInterval: menuKey === "points" ? 15000 : false,
     refetchOnWindowFocus: false,
   });
+  const pointsPacketsQuery = useQuery({
+    queryKey: queryKeys.pointsPackets(baseUrl, chatId, adminToken),
+    queryFn: () => api.getPointsPackets(chatId, adminToken),
+    enabled: authed && chatReady,
+    placeholderData: keepCurrentChatData,
+    refetchInterval: menuKey === "points" ? 15000 : false,
+    refetchOnWindowFocus: false,
+  });
+  const pointsPoolQuery = useQuery({
+    queryKey: queryKeys.pointsPool(baseUrl, chatId, adminToken),
+    queryFn: () => api.getPointsPool(chatId, adminToken),
+    enabled: authed && chatReady,
+    placeholderData: keepCurrentChatData,
+    refetchInterval: menuKey === "points" ? 15000 : false,
+    refetchOnWindowFocus: false,
+  });
+  const pointsPoolLedgerQuery = useQuery({
+    queryKey: queryKeys.pointsPoolLedger(baseUrl, chatId, adminToken),
+    queryFn: () => api.getPointsPoolLedger(chatId, adminToken, 100),
+    enabled: authed && chatReady,
+    placeholderData: keepCurrentChatData,
+    refetchInterval: menuKey === "points" ? 15000 : false,
+    refetchOnWindowFocus: false,
+  });
   const pointsLeaderboardQuery = useQuery({
     queryKey: queryKeys.pointsLeaderboard(baseUrl, chatId, adminToken),
     queryFn: () => api.getPointsLeaderboard(chatId, adminToken, 20),
@@ -312,6 +336,9 @@ export function AdminConsolePage({
     pointsTaskConfigQuery.isLoading ||
     pointsShopQuery.isLoading ||
     pointsRedemptionsQuery.isLoading ||
+    pointsPacketsQuery.isLoading ||
+    pointsPoolQuery.isLoading ||
+    pointsPoolLedgerQuery.isLoading ||
     pointsLeaderboardQuery.isLoading ||
     pointsLedgerQuery.isLoading ||
     lotteriesQuery.isLoading ||
@@ -334,6 +361,9 @@ export function AdminConsolePage({
       pointsTaskConfigQuery.data ||
       pointsShopQuery.data ||
       pointsRedemptionsQuery.data ||
+      pointsPacketsQuery.data ||
+      pointsPoolQuery.data ||
+      pointsPoolLedgerQuery.data ||
       pointsLeaderboardQuery.data ||
       pointsLedgerQuery.data ||
       lotteriesQuery.data ||
@@ -361,6 +391,9 @@ export function AdminConsolePage({
     pointsTaskConfigQuery.data,
     pointsShopQuery.data,
     pointsRedemptionsQuery.data,
+    pointsPacketsQuery.data,
+    pointsPoolQuery.data,
+    pointsPoolLedgerQuery.data,
     pointsLeaderboardQuery.data,
     pointsLedgerQuery.data,
     lotteriesQuery.data,
@@ -387,6 +420,9 @@ export function AdminConsolePage({
     pointsTaskConfigQuery.isFetching ||
     pointsShopQuery.isFetching ||
     pointsRedemptionsQuery.isFetching ||
+    pointsPacketsQuery.isFetching ||
+    pointsPoolQuery.isFetching ||
+    pointsPoolLedgerQuery.isFetching ||
     pointsLeaderboardQuery.isFetching ||
     pointsLedgerQuery.isFetching ||
     lotteriesQuery.isFetching ||
@@ -412,6 +448,9 @@ export function AdminConsolePage({
         pointsTaskConfigQuery.refetch(),
         pointsShopQuery.refetch(),
         pointsRedemptionsQuery.refetch(),
+        pointsPacketsQuery.refetch(),
+        pointsPoolQuery.refetch(),
+        pointsPoolLedgerQuery.refetch(),
         pointsLeaderboardQuery.refetch(),
         pointsLedgerQuery.refetch(),
       );
@@ -669,6 +708,9 @@ export function AdminConsolePage({
     pointsTaskConfig: pointsTaskConfigQuery.data ?? [],
     pointsShop: pointsShopQuery.data ?? [],
     pointsRedemptions: pointsRedemptionsQuery.data ?? [],
+    pointsPackets: pointsPacketsQuery.data ?? [],
+    pointsPool: pointsPoolQuery.data,
+    pointsPoolLedger: pointsPoolLedgerQuery.data ?? [],
     pointsLeaderboard: pointsLeaderboardQuery.data ?? [],
     pointsLedger: pointsLedgerQuery.data ?? [],
     lotteries: lotteriesQuery.data ?? [],
@@ -800,6 +842,9 @@ export function AdminConsolePage({
               pointsTaskConfigQuery.refetch(),
               pointsShopQuery.refetch(),
               pointsRedemptionsQuery.refetch(),
+              pointsPacketsQuery.refetch(),
+              pointsPoolQuery.refetch(),
+              pointsPoolLedgerQuery.refetch(),
               pointsLeaderboardQuery.refetch(),
               pointsLedgerQuery.refetch(),
             ]);
@@ -866,6 +911,15 @@ export function AdminConsolePage({
               await api.updatePointsRedemptionStatus(chatId, adminToken, redemptionId, status);
               toast.success("兑换状态已更新");
               await pointsRedemptionsQuery.refetch();
+            } catch (error) {
+              toast.error(getErrorMessage(error));
+            }
+          }}
+          onCreatePacket={async (payload) => {
+            try {
+              await api.createPointsPacket(chatId, adminToken, payload);
+              toast.success("红包已创建");
+              await Promise.all([pointsPacketsQuery.refetch(), pointsPoolQuery.refetch(), pointsLedgerQuery.refetch()]);
             } catch (error) {
               toast.error(getErrorMessage(error));
             }

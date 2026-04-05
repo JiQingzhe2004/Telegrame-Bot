@@ -32,11 +32,12 @@ const emptyPayload: LotteryPayload = {
   allow_multiple_entries: false,
   max_entries_per_user: 1,
   show_participants: true,
+  prize_source: "personal_points",
   starts_at: "",
   entry_deadline_at: "",
   draw_at: "",
   prizes: [
-    { title: "一等奖", winner_count: 1, sort_order: 0 },
+    { title: "一等奖", winner_count: 1, bonus_points: 0, sort_order: 0 },
   ],
 };
 
@@ -78,12 +79,14 @@ export function LotteryPanel({
       allow_multiple_entries: selectedLottery.allow_multiple_entries,
       max_entries_per_user: selectedLottery.max_entries_per_user,
       show_participants: selectedLottery.show_participants,
+      prize_source: selectedLottery.prize_source,
       starts_at: selectedLottery.starts_at,
       entry_deadline_at: selectedLottery.entry_deadline_at,
       draw_at: selectedLottery.draw_at,
       prizes: selectedLottery.prizes.map((prize, index) => ({
         title: prize.title,
         winner_count: prize.winner_count,
+        bonus_points: prize.bonus_points ?? 0,
         sort_order: prize.sort_order ?? index,
       })),
     });
@@ -113,6 +116,7 @@ export function LotteryPanel({
       .map((prize, index) => ({
         title: prize.title.trim(),
         winner_count: Math.max(Number(prize.winner_count || 0), 0),
+        bonus_points: Math.max(Number(prize.bonus_points || 0), 0),
         sort_order: index,
       }))
       .filter((prize) => prize.title);
@@ -235,6 +239,21 @@ export function LotteryPanel({
                 <Input type="number" value={formState.points_threshold} onChange={(e) => setFormState((prev) => ({ ...prev, points_threshold: Number(e.target.value) }))} />
               </div>
             </div>
+            <div className="space-y-2">
+              <Label>奖池来源</Label>
+              <Select value={formState.prize_source} onValueChange={(value: LotteryPayload["prize_source"]) => setFormState((prev) => ({ ...prev, prize_source: value }))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="personal_points">普通奖励</SelectItem>
+                  <SelectItem value="group_pool">群资金池</SelectItem>
+                </SelectContent>
+              </Select>
+              {formState.prize_source === "group_pool" ? (
+                <p className="text-xs text-muted-foreground">当前群资金池余额：{data.pointsPool?.balance ?? 0}</p>
+              ) : null}
+            </div>
             <div className="grid gap-4 md:grid-cols-3">
               <DateTimePicker label="开始时间" value={formState.starts_at} onChange={(next) => setFormState((prev) => ({ ...prev, starts_at: next }))} />
               <DateTimePicker label="报名截止" value={formState.entry_deadline_at} onChange={(next) => setFormState((prev) => ({ ...prev, entry_deadline_at: next }))} />
@@ -270,11 +289,11 @@ export function LotteryPanel({
                   size="sm"
                   onClick={() =>
                     setFormState((prev) => ({
-                      ...prev,
-                      prizes: [
-                        ...prev.prizes,
-                        { title: `奖项 ${prev.prizes.length + 1}`, winner_count: 1, sort_order: prev.prizes.length },
-                      ],
+                        ...prev,
+                        prizes: [
+                          ...prev.prizes,
+                        { title: `奖项 ${prev.prizes.length + 1}`, winner_count: 1, bonus_points: 0, sort_order: prev.prizes.length },
+                        ],
                     }))
                   }
                 >
@@ -283,7 +302,7 @@ export function LotteryPanel({
                 </Button>
               </div>
               {formState.prizes.map((prize, index) => (
-                <div key={`${prize.title}-${index}`} className="grid gap-3 rounded-xl border bg-background/70 p-4 md:grid-cols-[1fr_120px_80px]">
+                <div key={`${prize.title}-${index}`} className="grid gap-3 rounded-xl border bg-background/70 p-4 md:grid-cols-[1fr_120px_120px_80px]">
                   <Input
                     value={prize.title}
                     onChange={(e) =>
@@ -304,6 +323,17 @@ export function LotteryPanel({
                       }))
                     }
                     placeholder="名额"
+                  />
+                  <Input
+                    type="number"
+                    value={prize.bonus_points ?? 0}
+                    onChange={(e) =>
+                      setFormState((prev) => ({
+                        ...prev,
+                        prizes: prev.prizes.map((item, i) => (i === index ? { ...item, bonus_points: Number(e.target.value) } : item)),
+                      }))
+                    }
+                    placeholder="奖励积分"
                   />
                   <Button
                     type="button"

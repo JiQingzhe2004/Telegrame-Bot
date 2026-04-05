@@ -12,7 +12,15 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from bot.domain.models import ChatRef, MessageRef, ModerationContext, UserRef
-from bot.lottery_service import ENTRY_MODE_CONSUME, ENTRY_MODE_FREE, ENTRY_MODE_THRESHOLD, LotteryService
+from bot.hongbao_service import HongbaoService, PACKET_MODE_EQUAL, PACKET_MODE_RANDOM
+from bot.lottery_service import (
+    ENTRY_MODE_CONSUME,
+    ENTRY_MODE_FREE,
+    ENTRY_MODE_THRESHOLD,
+    LotteryService,
+    PRIZE_SOURCE_PERSONAL,
+    PRIZE_SOURCE_POOL,
+)
 from bot.points_service import PointsService
 from bot.runtime_manager import RuntimeManager
 from bot.storage.repo import BotRepository
@@ -50,6 +58,7 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
     backend_version = get_backend_version()
     app = FastAPI(title="telegram-moderator-bot-api", version=backend_version)
     points_service = PointsService(services.repo)
+    hongbao_service = HongbaoService(services.repo)
     lottery_service = LotteryService(services.repo)
     app.add_middleware(
         CORSMiddleware,
@@ -170,6 +179,7 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
                 {
                     "title": prize_title,
                     "winner_count": max(int(prize.get("winner_count", 1)), 0),
+                    "bonus_points": max(int(prize.get("bonus_points", 0)), 0),
                     "sort_order": int(prize.get("sort_order", idx)),
                 }
             )
@@ -187,6 +197,14 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
         if deadline_dt < starts_dt or draw_dt < deadline_dt:
             raise HTTPException(status_code=400, detail="invalid_lottery_schedule_order")
         max_entries_per_user = max(int(body.get("max_entries_per_user", 1)), 1)
+        prize_source = str(body.get("prize_source", PRIZE_SOURCE_PERSONAL)).strip() or PRIZE_SOURCE_PERSONAL
+        if prize_source not in {PRIZE_SOURCE_PERSONAL, PRIZE_SOURCE_POOL}:
+            raise HTTPException(status_code=400, detail="invalid_lottery_prize_source")
+        total_bonus_points = sum(int(item["bonus_points"]) * int(item["winner_count"]) for item in parsed_prizes)
+        if prize_source == PRIZE_SOURCE_POOL:
+            pool = services.repo.get_points_pool_balance(chat_id)
+            if int(pool["balance"]) < total_bonus_points:
+                raise HTTPException(status_code=400, detail="lottery_pool_insufficient")
         return {
             "chat_id": chat_id,
             "title": title,
@@ -197,6 +215,7 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
             "allow_multiple_entries": bool(body.get("allow_multiple_entries", False)),
             "max_entries_per_user": max_entries_per_user,
             "show_participants": bool(body.get("show_participants", True)),
+            "prize_source": prize_source,
             "starts_at": starts_at,
             "entry_deadline_at": entry_deadline_at,
             "draw_at": draw_at,
@@ -212,6 +231,7 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
             "points_daily_cap",
             "points_transfer_enabled",
             "points_transfer_min_amount",
+            "hongbao_template",
         }
         payload = {k: body[k] for k in allowed if k in body}
         if "points_message_reward" in payload:
@@ -222,6 +242,8 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
             payload["points_daily_cap"] = int(payload["points_daily_cap"])
         if "points_transfer_min_amount" in payload:
             payload["points_transfer_min_amount"] = int(payload["points_transfer_min_amount"])
+        if "hongbao_template" in payload:
+            payload["hongbao_template"] = str(payload["hongbao_template"])
         return payload
 
     @app.get("/healthz")
@@ -536,6 +558,57 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
         _get_known_chat(chat_id)
         data = points_service.list_redemptions(chat_id, user_id=user_id)
         return ApiEnvelope(ok=True, data=data[:limit])
+
+    @app.get("/api/v1/chats/{chat_id}/points/packets", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def get_points_packets(chat_id: int, limit: int = 100) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        return ApiEnvelope(ok=True, data=services.repo.list_points_packets(chat_id, limit))
+
+    @app.get("/api/v1/chats/{chat_id}/points/packets/{packet_id}", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def get_points_packet(chat_id: int, packet_id: int) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        packet = services.repo.get_points_packet(packet_id)
+        if packet is None or int(packet["chat_id"]) != chat_id:
+            raise HTTPException(status_code=404, detail="packet_not_found")
+        return ApiEnvelope(ok=True, data={**packet, "claims": services.repo.list_points_packet_claims(packet_id)})
+
+    @app.post("/api/v1/chats/{chat_id}/points/packets", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def create_points_packet(chat_id: int, body: dict[str, Any]) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        try:
+            sender_user_id = int(body.get("sender_user_id", 0))
+            total_amount = int(body.get("total_amount", 0))
+            packet_count = int(body.get("packet_count", 0))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="invalid_packet_fields") from exc
+        split_mode = str(body.get("split_mode", PACKET_MODE_RANDOM)).strip() or PACKET_MODE_RANDOM
+        blessing = str(body.get("blessing", "")).strip()
+        if split_mode not in {PACKET_MODE_RANDOM, PACKET_MODE_EQUAL}:
+            raise HTTPException(status_code=400, detail="invalid_packet_split_mode")
+        try:
+            result = hongbao_service.create_packet(
+                chat_id=chat_id,
+                sender_user_id=sender_user_id,
+                total_amount=total_amount,
+                packet_count=packet_count,
+                split_mode=split_mode,
+                blessing=blessing,
+                settings=services.repo.get_settings(chat_id),
+                operator="admin_api",
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return ApiEnvelope(ok=True, data=result)
+
+    @app.get("/api/v1/chats/{chat_id}/points/pool", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def get_points_pool(chat_id: int) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        return ApiEnvelope(ok=True, data=services.repo.get_points_pool_balance(chat_id))
+
+    @app.get("/api/v1/chats/{chat_id}/points/pool/ledger", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def get_points_pool_ledger(chat_id: int, limit: int = 100) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        return ApiEnvelope(ok=True, data=services.repo.list_points_pool_ledger(chat_id, limit))
 
     @app.post("/api/v1/chats/{chat_id}/points/redemptions/{redemption_id}/status", dependencies=[Depends(require_active), Depends(auth_admin)])
     async def post_points_redemption_status(chat_id: int, redemption_id: int, body: dict[str, Any]) -> ApiEnvelope:

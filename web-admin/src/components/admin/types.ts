@@ -13,6 +13,9 @@ import type {
   ListItem,
   KnownChat,
   PointsBalance,
+  PointsPacket,
+  PointsPoolBalance,
+  PointsPoolLedgerEntry,
   PointsLedgerEntry,
   PointsRedemption,
   PointsShopItem,
@@ -33,6 +36,9 @@ export type AdminDataBundle = {
   pointsTaskConfig: PointsTaskDefinition[];
   pointsShop: PointsShopItem[];
   pointsRedemptions: PointsRedemption[];
+  pointsPackets: PointsPacket[];
+  pointsPool?: PointsPoolBalance;
+  pointsPoolLedger: PointsPoolLedgerEntry[];
   pointsLeaderboard: PointsBalance[];
   pointsLedger: PointsLedgerEntry[];
   lotteries: LotteryDetail[];

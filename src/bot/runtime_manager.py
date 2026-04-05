@@ -53,6 +53,7 @@ class RuntimeManager:
             "rate_limit_policy": conf.default_rate_limit_policy,
             "language": conf.default_language,
             "level3_mute_seconds": conf.default_level3_mute_seconds,
+            "hongbao_template": "{sender} 发了一个{packet_type}，共 {total_amount} 积分 / {packet_count} 份。{blessing}",
         }
 
     async def startup(self) -> None:

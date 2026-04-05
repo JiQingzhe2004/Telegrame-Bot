@@ -56,6 +56,7 @@ class ChatSettings:
     points_checkin_base_reward: int = 3
     points_checkin_streak_bonus: int = 1
     points_checkin_streak_cap: int = 7
+    hongbao_template: str = "{sender} 发了一个{packet_type}，共 {total_amount} 积分 / {packet_count} 份。{blessing}"
 
 
 @dataclass(frozen=True)

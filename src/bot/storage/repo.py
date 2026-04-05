@@ -101,6 +101,7 @@ class BotRepository:
             points_checkin_base_reward=int(row["points_checkin_base_reward"]),
             points_checkin_streak_bonus=int(row["points_checkin_streak_bonus"]),
             points_checkin_streak_cap=int(row["points_checkin_streak_cap"]),
+            hongbao_template=str(row["hongbao_template"]),
         )
 
     def update_settings(self, chat_id: int, payload: dict[str, Any]) -> None:
@@ -113,9 +114,9 @@ class BotRepository:
                   chat_id, chat_enabled, mode, ai_enabled, ai_threshold, allow_admin_self_test, action_policy, rate_limit_policy, language,
                   level3_mute_seconds, points_enabled, points_message_reward, points_message_cooldown_seconds, points_daily_cap,
                   points_transfer_enabled, points_transfer_min_amount, points_transfer_daily_limit,
-                  points_checkin_base_reward, points_checkin_streak_bonus, points_checkin_streak_cap, updated_at
+                  points_checkin_base_reward, points_checkin_streak_bonus, points_checkin_streak_cap, hongbao_template, updated_at
                 )
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(chat_id) DO UPDATE SET
                   chat_enabled=excluded.chat_enabled,
                   mode=excluded.mode,
@@ -136,6 +137,7 @@ class BotRepository:
                   points_checkin_base_reward=excluded.points_checkin_base_reward,
                   points_checkin_streak_bonus=excluded.points_checkin_streak_bonus,
                   points_checkin_streak_cap=excluded.points_checkin_streak_cap,
+                  hongbao_template=excluded.hongbao_template,
                   updated_at=excluded.updated_at
                 """,
                 (
@@ -159,6 +161,7 @@ class BotRepository:
                     int(new["points_checkin_base_reward"]),
                     int(new["points_checkin_streak_bonus"]),
                     int(new["points_checkin_streak_cap"]),
+                    str(new["hongbao_template"]),
                     to_iso(utc_now()),
                 ),
             )
@@ -1047,6 +1050,7 @@ class BotRepository:
         allow_multiple_entries: bool,
         max_entries_per_user: int,
         show_participants: bool,
+        prize_source: str,
         starts_at: str,
         entry_deadline_at: str,
         draw_at: str,
@@ -1058,10 +1062,10 @@ class BotRepository:
                 """
                 INSERT INTO chat_lotteries(
                   chat_id, title, description, status, entry_mode, points_cost, points_threshold,
-                  allow_multiple_entries, max_entries_per_user, show_participants,
+                  allow_multiple_entries, max_entries_per_user, show_participants, prize_source,
                   starts_at, entry_deadline_at, draw_at, created_by, created_at, updated_at
                 )
-                VALUES(?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES(?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     chat_id,
@@ -1073,6 +1077,7 @@ class BotRepository:
                     1 if allow_multiple_entries else 0,
                     max_entries_per_user,
                     1 if show_participants else 0,
+                    prize_source,
                     starts_at,
                     entry_deadline_at,
                     draw_at,
@@ -1093,7 +1098,7 @@ class BotRepository:
                 """
                 UPDATE chat_lotteries
                 SET title = ?, description = ?, status = ?, entry_mode = ?, points_cost = ?, points_threshold = ?,
-                    allow_multiple_entries = ?, max_entries_per_user = ?, show_participants = ?,
+                    allow_multiple_entries = ?, max_entries_per_user = ?, show_participants = ?, prize_source = ?,
                     starts_at = ?, entry_deadline_at = ?, draw_at = ?, announcement_message_id = ?, summary_json = ?, updated_at = ?
                 WHERE id = ?
                 """,
@@ -1107,6 +1112,7 @@ class BotRepository:
                     1 if bool(merged["allow_multiple_entries"]) else 0,
                     int(merged["max_entries_per_user"]),
                     1 if bool(merged["show_participants"]) else 0,
+                    str(merged.get("prize_source", "personal_points")),
                     merged["starts_at"],
                     merged["entry_deadline_at"],
                     merged["draw_at"],
@@ -1123,7 +1129,7 @@ class BotRepository:
             row = conn.execute(
                 """
                 SELECT id, chat_id, title, description, status, entry_mode, points_cost, points_threshold,
-                       allow_multiple_entries, max_entries_per_user, show_participants,
+                       allow_multiple_entries, max_entries_per_user, show_participants, prize_source,
                        starts_at, entry_deadline_at, draw_at, announcement_message_id, created_by,
                        summary_json, canceled_at, drawn_at, created_at, updated_at
                 FROM chat_lotteries
@@ -1138,7 +1144,7 @@ class BotRepository:
             rows = conn.execute(
                 """
                 SELECT id, chat_id, title, description, status, entry_mode, points_cost, points_threshold,
-                       allow_multiple_entries, max_entries_per_user, show_participants,
+                       allow_multiple_entries, max_entries_per_user, show_participants, prize_source,
                        starts_at, entry_deadline_at, draw_at, announcement_message_id, created_by,
                        summary_json, canceled_at, drawn_at, created_at, updated_at
                 FROM chat_lotteries
@@ -1157,13 +1163,14 @@ class BotRepository:
             for idx, prize in enumerate(prizes):
                 conn.execute(
                     """
-                    INSERT INTO chat_lottery_prizes(lottery_id, title, winner_count, sort_order, created_at)
-                    VALUES(?, ?, ?, ?, ?)
+                    INSERT INTO chat_lottery_prizes(lottery_id, title, winner_count, bonus_points, sort_order, created_at)
+                    VALUES(?, ?, ?, ?, ?, ?)
                     """,
                     (
                         lottery_id,
                         str(prize.get("title", "")).strip(),
                         max(int(prize.get("winner_count", 1)), 0),
+                        max(int(prize.get("bonus_points", 0)), 0),
                         int(prize.get("sort_order", idx)),
                         now,
                     ),
@@ -1174,7 +1181,7 @@ class BotRepository:
         with self.db.connect() as conn:
             rows = conn.execute(
                 """
-                SELECT id, lottery_id, title, winner_count, sort_order, created_at
+                SELECT id, lottery_id, title, winner_count, bonus_points, sort_order, created_at
                 FROM chat_lottery_prizes
                 WHERE lottery_id = ?
                 ORDER BY sort_order ASC, id ASC
@@ -1388,7 +1395,7 @@ class BotRepository:
             rows = conn.execute(
                 """
                 SELECT id, chat_id, title, description, status, entry_mode, points_cost, points_threshold,
-                       allow_multiple_entries, max_entries_per_user, show_participants,
+                       allow_multiple_entries, max_entries_per_user, show_participants, prize_source,
                        starts_at, entry_deadline_at, draw_at, announcement_message_id, created_by,
                        summary_json, canceled_at, drawn_at, created_at, updated_at
                 FROM chat_lotteries
@@ -1396,6 +1403,230 @@ class BotRepository:
                 ORDER BY draw_at ASC, id ASC
                 """,
                 (draw_at_iso,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def create_points_packet(
+        self,
+        *,
+        chat_id: int,
+        sender_user_id: int,
+        total_amount: int,
+        packet_count: int,
+        split_mode: str,
+        blessing: str | None,
+        expires_at: str,
+    ) -> dict[str, Any]:
+        now = to_iso(utc_now())
+        with self.db.connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO chat_points_packets(
+                  chat_id, sender_user_id, total_amount, packet_count, split_mode, blessing, status,
+                  claimed_amount, claimed_count, remaining_amount, remaining_count,
+                  expires_at, message_id, created_at, updated_at
+                )
+                VALUES(?, ?, ?, ?, ?, ?, 'active', 0, 0, ?, ?, ?, NULL, ?, ?)
+                """,
+                (chat_id, sender_user_id, total_amount, packet_count, split_mode, blessing, total_amount, packet_count, expires_at, now, now),
+            )
+        return self.get_points_packet(int(cur.lastrowid)) or {}
+
+    def get_points_packet(self, packet_id: int) -> dict[str, Any] | None:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, chat_id, sender_user_id, total_amount, packet_count, split_mode, blessing, status,
+                       claimed_amount, claimed_count, remaining_amount, remaining_count,
+                       expires_at, message_id, created_at, updated_at
+                FROM chat_points_packets
+                WHERE id = ?
+                """,
+                (packet_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def list_points_packets(self, chat_id: int, limit: int = 100) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, chat_id, sender_user_id, total_amount, packet_count, split_mode, blessing, status,
+                       claimed_amount, claimed_count, remaining_amount, remaining_count,
+                       expires_at, message_id, created_at, updated_at
+                FROM chat_points_packets
+                WHERE chat_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (chat_id, limit),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def update_points_packet(
+        self,
+        packet_id: int,
+        *,
+        status: str | None = None,
+        claimed_amount: int | None = None,
+        claimed_count: int | None = None,
+        remaining_amount: int | None = None,
+        remaining_count: int | None = None,
+        message_id: int | None = None,
+    ) -> dict[str, Any] | None:
+        current = self.get_points_packet(packet_id)
+        if current is None:
+            return None
+        with self.db.connect() as conn:
+            conn.execute(
+                """
+                UPDATE chat_points_packets
+                SET status = ?, claimed_amount = ?, claimed_count = ?, remaining_amount = ?, remaining_count = ?, message_id = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    status if status is not None else current["status"],
+                    int(claimed_amount if claimed_amount is not None else current["claimed_amount"]),
+                    int(claimed_count if claimed_count is not None else current["claimed_count"]),
+                    int(remaining_amount if remaining_amount is not None else current["remaining_amount"]),
+                    int(remaining_count if remaining_count is not None else current["remaining_count"]),
+                    message_id if message_id is not None else current.get("message_id"),
+                    to_iso(utc_now()),
+                    packet_id,
+                ),
+            )
+        return self.get_points_packet(packet_id)
+
+    def create_points_packet_claim(
+        self,
+        *,
+        packet_id: int,
+        chat_id: int,
+        receiver_user_id: int,
+        amount: int,
+        ledger_id: int | None,
+    ) -> dict[str, Any]:
+        now = to_iso(utc_now())
+        with self.db.connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO chat_points_packet_claims(packet_id, chat_id, receiver_user_id, amount, ledger_id, claimed_at)
+                VALUES(?, ?, ?, ?, ?, ?)
+                """,
+                (packet_id, chat_id, receiver_user_id, amount, ledger_id, now),
+            )
+            row = conn.execute(
+                """
+                SELECT id, packet_id, chat_id, receiver_user_id, amount, ledger_id, claimed_at
+                FROM chat_points_packet_claims WHERE id = ?
+                """,
+                (int(cur.lastrowid),),
+            ).fetchone()
+        return dict(row)
+
+    def list_points_packet_claims(self, packet_id: int) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT c.id, c.packet_id, c.chat_id, c.receiver_user_id, c.amount, c.ledger_id, c.claimed_at,
+                       u.username, u.first_name, u.last_name
+                FROM chat_points_packet_claims c
+                LEFT JOIN users u ON u.user_id = c.receiver_user_id
+                WHERE c.packet_id = ?
+                ORDER BY c.claimed_at ASC, c.id ASC
+                """,
+                (packet_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_points_packet_claim(self, packet_id: int, receiver_user_id: int) -> dict[str, Any] | None:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, packet_id, chat_id, receiver_user_id, amount, ledger_id, claimed_at
+                FROM chat_points_packet_claims
+                WHERE packet_id = ? AND receiver_user_id = ?
+                """,
+                (packet_id, receiver_user_id),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def list_due_points_packets(self, now_iso: str) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, chat_id, sender_user_id, total_amount, packet_count, split_mode, blessing, status,
+                       claimed_amount, claimed_count, remaining_amount, remaining_count,
+                       expires_at, message_id, created_at, updated_at
+                FROM chat_points_packets
+                WHERE status = 'active' AND expires_at <= ?
+                ORDER BY expires_at ASC, id ASC
+                """,
+                (now_iso,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def add_pool_ledger(
+        self,
+        *,
+        chat_id: int,
+        change_amount: int,
+        event_type: str,
+        operator: str,
+        reason: str | None = None,
+        related_packet_id: int | None = None,
+        related_lottery_id: int | None = None,
+    ) -> dict[str, Any]:
+        current = self.get_points_pool_balance(chat_id)
+        balance_after = int(current["balance"]) + int(change_amount)
+        now = to_iso(utc_now())
+        with self.db.connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO chat_points_pool_ledger(
+                  chat_id, change_amount, balance_after, event_type, operator, reason, related_packet_id, related_lottery_id, created_at
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (chat_id, change_amount, balance_after, event_type, operator, reason, related_packet_id, related_lottery_id, now),
+            )
+            row = conn.execute(
+                """
+                SELECT id, chat_id, change_amount, balance_after, event_type, operator, reason, related_packet_id, related_lottery_id, created_at
+                FROM chat_points_pool_ledger WHERE id = ?
+                """,
+                (int(cur.lastrowid),),
+            ).fetchone()
+        return dict(row)
+
+    def get_points_pool_balance(self, chat_id: int) -> dict[str, Any]:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT balance_after, created_at
+                FROM chat_points_pool_ledger
+                WHERE chat_id = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (chat_id,),
+            ).fetchone()
+        return {
+            "chat_id": chat_id,
+            "balance": int(row["balance_after"]) if row else 0,
+            "updated_at": row["created_at"] if row else None,
+        }
+
+    def list_points_pool_ledger(self, chat_id: int, limit: int = 100) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, chat_id, change_amount, balance_after, event_type, operator, reason, related_packet_id, related_lottery_id, created_at
+                FROM chat_points_pool_ledger
+                WHERE chat_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (chat_id, limit),
             ).fetchall()
         return [dict(r) for r in rows]
 

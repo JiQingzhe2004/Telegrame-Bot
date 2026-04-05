@@ -28,6 +28,7 @@ from telegram.ext import (
 )
 
 from bot.ai.openai_client import OpenAiModerator
+from bot.hongbao_service import HongbaoService
 from bot.points_service import PointsService
 from bot.lottery_service import LotteryService
 from bot.ai.redact import redact_pii
@@ -36,6 +37,7 @@ from bot.domain.moderation import Enforcer, ModerationService
 from bot.storage.repo import BotRepository
 from bot.system_config import RuntimeConfig
 from bot.telegram.commands import (
+    HONGBAO_CALLBACK_PREFIX,
     POINTS_SELF_CALLBACK_PREFIX,
     USER_FLOW_CALLBACK_PREFIX,
     _send_private_points,
@@ -43,7 +45,10 @@ from bot.telegram.commands import (
     appeal_cmd,
     banword_cmd,
     checkin_cmd,
+    handle_group_hongbao_text,
+    hongbao_cmd,
     on_private_text,
+    on_hongbao_callback,
     on_user_flow_callback,
     config_cmd,
     forgive_cmd,
@@ -60,6 +65,7 @@ from bot.telegram.commands import (
     tasks_cmd,
     threshold_cmd,
     whitelist_cmd,
+    register_hongbao_job,
 )
 from bot.telegram.permissions import get_permission_snapshot, is_admin
 from bot.utils.time import utc_now
@@ -448,6 +454,7 @@ async def _register_bot_commands(app: Application) -> None:
         BotCommand("points", "查看我的积分（私聊返回）"),
         BotCommand("rank", "查看本群积分排行榜"),
         BotCommand("pay", "给群成员转账积分 /pay 用户 金额"),
+        BotCommand("hongbao", "发积分红包"),
         BotCommand("checkin", "每日签到领取积分"),
         BotCommand("tasks", "查看今日任务进度"),
         BotCommand("shop", "查看当前可兑换商品"),
@@ -705,6 +712,8 @@ async def on_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     text = msg.text or msg.caption or ""
     if not text:
         return
+    if await handle_group_hongbao_text(update, context):
+        return
 
     service: ModerationService = context.application.bot_data["moderation_service"]
     enforcer: Enforcer = context.application.bot_data["enforcer"]
@@ -838,6 +847,7 @@ def build_application(
     app.bot_data["runtime_config"] = runtime_config or RuntimeConfig()
     app.bot_data["pending_join_verifications"] = {}
     app.bot_data["points_service"] = points_service
+    app.bot_data["hongbao_service"] = HongbaoService(repo)
     app.bot_data["lottery_service"] = LotteryService(repo)
 
     app.add_handler(CommandHandler("status", status_cmd))
@@ -852,6 +862,7 @@ def build_application(
     app.add_handler(CommandHandler("points", points_cmd))
     app.add_handler(CommandHandler("rank", rank_cmd))
     app.add_handler(CommandHandler("pay", pay_cmd))
+    app.add_handler(CommandHandler("hongbao", hongbao_cmd))
     app.add_handler(CommandHandler("checkin", checkin_cmd))
     app.add_handler(CommandHandler("tasks", tasks_cmd))
     app.add_handler(CommandHandler("shop", shop_cmd))
@@ -859,6 +870,7 @@ def build_application(
     app.add_handler(CommandHandler("points_add", points_add_cmd))
     app.add_handler(CommandHandler("points_sub", points_sub_cmd))
     app.add_handler(CallbackQueryHandler(on_lottery_callback, pattern=f"^{LOTTERY_CALLBACK_PREFIX}"))
+    app.add_handler(CallbackQueryHandler(on_hongbao_callback, pattern=f"^{HONGBAO_CALLBACK_PREFIX}"))
     app.add_handler(CallbackQueryHandler(on_user_flow_callback, pattern=f"^{USER_FLOW_CALLBACK_PREFIX}"))
     app.add_handler(CallbackQueryHandler(on_points_self_callback, pattern=f"^{POINTS_SELF_CALLBACK_PREFIX}"))
     app.add_handler(CallbackQueryHandler(on_join_verify_callback, pattern=f"^{VERIFY_CALLBACK_PREFIX}"))
@@ -867,5 +879,6 @@ def build_application(
     app.add_handler(MessageHandler(filters.ALL & (~filters.COMMAND), on_group_message))
     register_inspection_job(app)
     register_lottery_job(app)
+    register_hongbao_job(app)
     app.post_init = _register_bot_commands
     return app

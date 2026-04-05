@@ -11,6 +11,8 @@ from bot.utils.time import to_iso, utc_now
 ENTRY_MODE_FREE = "free"
 ENTRY_MODE_CONSUME = "consume_points"
 ENTRY_MODE_THRESHOLD = "balance_threshold"
+PRIZE_SOURCE_PERSONAL = "personal_points"
+PRIZE_SOURCE_POOL = "group_pool"
 
 
 class LotteryService:
@@ -19,6 +21,7 @@ class LotteryService:
 
     def create_lottery(self, chat_id: int, payload: dict[str, Any]) -> dict[str, Any]:
         prizes = list(payload.pop("prizes", []))
+        payload.setdefault("prize_source", PRIZE_SOURCE_PERSONAL)
         payload.pop("chat_id", None)
         lottery = self.repo.create_lottery(chat_id=chat_id, **payload)
         self.repo.replace_lottery_prizes(int(lottery["id"]), prizes)
@@ -26,6 +29,7 @@ class LotteryService:
 
     def update_lottery(self, lottery_id: int, payload: dict[str, Any]) -> dict[str, Any]:
         prizes = payload.pop("prizes", None)
+        payload.setdefault("prize_source", PRIZE_SOURCE_PERSONAL)
         lottery = self.repo.update_lottery(lottery_id, payload)
         if lottery is None:
             raise ValueError("lottery_not_found")
@@ -158,6 +162,11 @@ class LotteryService:
             return self.get_lottery_detail(lottery_id)
 
         prizes = self.repo.list_lottery_prizes(lottery_id)
+        total_bonus_points = sum(max(int(prize.get("bonus_points", 0)), 0) * max(int(prize.get("winner_count", 0)), 0) for prize in prizes)
+        if str(lottery.get("prize_source") or PRIZE_SOURCE_PERSONAL) == PRIZE_SOURCE_POOL and total_bonus_points > 0:
+            pool = self.repo.get_points_pool_balance(int(lottery["chat_id"]))
+            if int(pool["balance"]) < total_bonus_points:
+                raise ValueError("lottery_pool_insufficient")
         entries = self.repo.list_lottery_entries(lottery_id)
         weighted_pool: list[dict[str, Any]] = []
         grouped = defaultdict(lambda: {"user_id": 0, "entry_count": 0})
@@ -187,11 +196,31 @@ class LotteryService:
                     entry_count=int(candidate["entry_count"]),
                     snapshot_json=json.dumps({"entry_count": int(candidate["entry_count"])}, ensure_ascii=False),
                 )
+                bonus_points = max(int(prize.get("bonus_points", 0)), 0)
+                if bonus_points > 0:
+                    self.repo.adjust_points(
+                        chat_id=int(lottery["chat_id"]),
+                        user_id=int(candidate["user_id"]),
+                        amount=bonus_points,
+                        event_type="lottery_prize_reward",
+                        operator=operator,
+                        reason=f"lottery:{lottery_id}:prize:{prize['id']}",
+                    )
                 winners.append(winner)
 
+        if str(lottery.get("prize_source") or PRIZE_SOURCE_PERSONAL) == PRIZE_SOURCE_POOL and total_bonus_points > 0:
+            self.repo.add_pool_ledger(
+                chat_id=int(lottery["chat_id"]),
+                change_amount=-total_bonus_points,
+                event_type="pool_lottery_out",
+                operator=operator,
+                reason=f"lottery:{lottery_id}:draw",
+                related_lottery_id=lottery_id,
+            )
         summary = {
             "winner_count": len(winners),
             "drawn_at": to_iso(utc_now()),
+            "bonus_points": total_bonus_points,
         }
         self.repo.update_lottery_status(lottery_id, status="drawn", operator=operator, summary_json=json.dumps(summary, ensure_ascii=False))
         return self.get_lottery_detail(lottery_id)

@@ -8,6 +8,15 @@ from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 from bot.domain.models import ChatRef
+from bot.hongbao_service import (
+    CURRENCY_LABEL,
+    HongbaoService,
+    PACKET_MODE_EQUAL,
+    PACKET_MODE_RANDOM,
+    PACKET_STATUS_ACTIVE,
+    PACKET_STATUS_EXPIRED,
+    PACKET_STATUS_FULLY_CLAIMED,
+)
 from bot.points_service import PointsService
 from bot.telegram.permissions import is_admin
 from bot.title_redemption_service import (
@@ -30,6 +39,7 @@ USER_ACTION_TASKS = "tasks"
 USER_ACTION_SHOP = "shop"
 USER_ACTION_CHECKIN = "checkin"
 USER_ACTION_PAY = "pay"
+HONGBAO_CALLBACK_PREFIX = "hongbao:"
 
 TRANSFER_STEP_TARGET = "target"
 TRANSFER_STEP_AMOUNT = "amount"
@@ -45,6 +55,14 @@ def _points_service(ctx: ContextTypes.DEFAULT_TYPE):
     if service is None:
         service = PointsService(_repo(ctx))
         ctx.application.bot_data["points_service"] = service
+    return service
+
+
+def _hongbao_service(ctx: ContextTypes.DEFAULT_TYPE) -> HongbaoService:
+    service = ctx.application.bot_data.get("hongbao_service")
+    if service is None:
+        service = HongbaoService(_repo(ctx))
+        ctx.application.bot_data["hongbao_service"] = service
     return service
 
 
@@ -150,6 +168,10 @@ def _set_active_chat(session: dict[str, Any], chat_id: int, chat_title: str | No
 
 def _clear_transfer_state(session: dict[str, Any]) -> None:
     session.pop("transfer", None)
+
+
+def _clear_hongbao_state(session: dict[str, Any]) -> None:
+    session.pop("hongbao", None)
 
 
 def _set_pending_custom_title(session: dict[str, Any], *, redemption_id: int, chat_id: int) -> None:
@@ -466,6 +488,16 @@ async def _send_private_transfer_notice(
         )
     except TelegramError:
         return
+
+
+def _hongbao_type_label(split_mode: str) -> str:
+    return "拼手气红包" if split_mode == PACKET_MODE_RANDOM else "普通红包"
+
+
+def _hongbao_markup(packet_id: int, *, active: bool = True) -> InlineKeyboardMarkup | None:
+    if not active:
+        return None
+    return InlineKeyboardMarkup([[InlineKeyboardButton("抢红包", callback_data=f"{HONGBAO_CALLBACK_PREFIX}claim:{packet_id}")]])
 
 
 async def _send_private_points(
@@ -859,6 +891,207 @@ async def _complete_transfer(update: Update, context: ContextTypes.DEFAULT_TYPE,
             ]
         ),
     )
+
+
+async def _render_hongbao_message(
+    *,
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    packet: dict[str, Any],
+    sender_name: str,
+) -> int | None:
+    settings = _repo(context).get_settings(chat_id)
+    chat = _repo(context).get_chat(chat_id)
+    text = _hongbao_service(context).render_packet_text(
+        {**packet, "chat_title": chat["title"] if chat else None},
+        settings,
+        sender_name,
+    )
+    markup = _hongbao_markup(int(packet["id"]), active=str(packet["status"]) == PACKET_STATUS_ACTIVE)
+    sent = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=markup, parse_mode="HTML")
+    _repo(context).update_points_packet(int(packet["id"]), message_id=sent.message_id)
+    return sent.message_id
+
+
+def _hongbao_sender_name(context: ContextTypes.DEFAULT_TYPE, packet: dict[str, Any]) -> str:
+    rows = _repo(context).list_chat_members(int(packet["chat_id"]), limit=20, query=str(packet["sender_user_id"]))
+    sender = next((row for row in rows if int(row["user_id"]) == int(packet["sender_user_id"])), None)
+    return _display_name(
+        sender.get("first_name") if sender else None,
+        sender.get("last_name") if sender else None,
+        sender.get("username") if sender else None,
+        packet["sender_user_id"],
+    )
+
+
+async def _refresh_hongbao_message(bot, repo, packet: dict[str, Any]) -> None:
+    message_id = packet.get("message_id")
+    if not message_id:
+        return
+    service = HongbaoService(repo)
+    settings = repo.get_settings(int(packet["chat_id"]))
+    sender_name = _display_name(None, None, None, packet["sender_user_id"])
+    rows = repo.list_chat_members(int(packet["chat_id"]), limit=20, query=str(packet["sender_user_id"]))
+    sender = next((row for row in rows if int(row["user_id"]) == int(packet["sender_user_id"])), None)
+    if sender is not None:
+        sender_name = _display_name(sender.get("first_name"), sender.get("last_name"), sender.get("username"), packet["sender_user_id"])
+    try:
+        await bot.edit_message_text(
+            chat_id=int(packet["chat_id"]),
+            message_id=int(message_id),
+            text=service.render_packet_text(packet, settings, sender_name),
+            reply_markup=_hongbao_markup(int(packet["id"]), active=str(packet["status"]) == PACKET_STATUS_ACTIVE),
+            parse_mode="HTML",
+        )
+    except TelegramError:
+        return
+
+
+async def _start_hongbao_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.effective_chat or not update.effective_user or not update.effective_message:
+        return
+    if update.effective_chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
+        await update.effective_message.reply_text("请在群里发红包。")
+        return
+    _remember_group_chat(update, context)
+    settings = _repo(context).get_settings(update.effective_chat.id)
+    if not settings.points_enabled:
+        await update.effective_message.reply_text("这个群当前没有开启积分功能。")
+        return
+    keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("普通红包", callback_data=f"{HONGBAO_CALLBACK_PREFIX}create:{update.effective_chat.id}:{update.effective_user.id}:{PACKET_MODE_EQUAL}"),
+                InlineKeyboardButton("拼手气红包", callback_data=f"{HONGBAO_CALLBACK_PREFIX}create:{update.effective_chat.id}:{update.effective_user.id}:{PACKET_MODE_RANDOM}"),
+            ]
+        ]
+    )
+    await update.effective_message.reply_text("选择红包类型后，按提示继续填写金额、份数和祝福语。", reply_markup=keyboard)
+
+
+async def handle_group_hongbao_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    if not update.effective_chat or not update.effective_user or not update.effective_message:
+        return False
+    if update.effective_chat.type not in {Chat.GROUP, Chat.SUPERGROUP}:
+        return False
+    session = _session(context, update.effective_user.id)
+    hongbao = session.get("hongbao")
+    if not isinstance(hongbao, dict):
+        return False
+    if int(hongbao.get("chat_id", 0) or 0) != update.effective_chat.id or hongbao.get("step") != "collect":
+        return False
+    text = (update.effective_message.text or "").strip()
+    parts = text.split()
+    if len(parts) < 2:
+        await update.effective_message.reply_text("请按“总金额 份数 祝福语”的格式发送，例如：100 5 恭喜发财。")
+        return True
+    try:
+        total_amount = int(parts[0])
+        packet_count = int(parts[1])
+    except ValueError:
+        await update.effective_message.reply_text("金额和份数都必须是整数。")
+        return True
+    blessing = " ".join(parts[2:]).strip()
+    try:
+        result = _hongbao_service(context).create_packet(
+            chat_id=update.effective_chat.id,
+            sender_user_id=update.effective_user.id,
+            total_amount=total_amount,
+            packet_count=packet_count,
+            split_mode=str(hongbao.get("split_mode") or PACKET_MODE_RANDOM),
+            blessing=blessing,
+            settings=_repo(context).get_settings(update.effective_chat.id),
+            operator="telegram_command",
+        )
+    except ValueError as exc:
+        messages = {
+            "points_disabled": "这个群当前没有开启积分功能。",
+            "packet_amount_invalid": "红包总金额必须大于 0。",
+            "packet_count_invalid": "红包个数必须大于 0。",
+            "packet_equal_amount_not_divisible": "普通红包要求总金额能被个数整除。",
+            "packet_count_exceeds_amount": "红包个数不能大于总金额，否则无法保证每份至少 1 积分。",
+            "insufficient_points": "你的积分不足，暂时发不了这个红包。",
+        }
+        await update.effective_message.reply_text(messages.get(str(exc), "发红包失败，请稍后再试。"))
+        return True
+    sender_name = update.effective_user.full_name or update.effective_user.username or str(update.effective_user.id)
+    await _render_hongbao_message(context=context, chat_id=update.effective_chat.id, packet=result["packet"], sender_name=sender_name)
+    _clear_hongbao_state(session)
+    await update.effective_message.reply_text(
+        f"红包已发出，扣除 {total_amount} {CURRENCY_LABEL}，当前余额：{result['sender_balance_after']}。"
+    )
+    return True
+
+
+async def on_hongbao_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.data or not query.from_user:
+        return
+    payload = query.data.removeprefix(HONGBAO_CALLBACK_PREFIX)
+    parts = payload.split(":")
+    action = parts[0] if parts else ""
+    if action == "create" and len(parts) >= 4:
+        chat_id = int(parts[1])
+        owner_user_id = int(parts[2])
+        split_mode = parts[3]
+        if query.from_user.id != owner_user_id:
+            await query.answer("只能由发起人继续填写这个红包。", show_alert=True)
+            return
+        session = _session(context, query.from_user.id)
+        session["hongbao"] = {"chat_id": chat_id, "step": "collect", "split_mode": split_mode}
+        await query.answer()
+        await query.edit_message_text(
+            f"已选择{_hongbao_type_label(split_mode)}。请直接在群里发送：总金额 份数 祝福语（可选）。\n例如：100 5 恭喜发财"
+        )
+        return
+    if action == "claim" and len(parts) >= 2:
+        packet_id = int(parts[1])
+        packet = _repo(context).get_points_packet(packet_id)
+        if packet is None:
+            await query.answer("红包不存在。", show_alert=True)
+            return
+        try:
+            result = _hongbao_service(context).claim_packet(packet_id, query.from_user.id, operator="telegram_callback")
+        except ValueError as exc:
+            messages = {
+                "packet_not_found": "红包不存在。",
+                "packet_not_active": "这个红包已经不能领取了。",
+                "packet_expired": "红包已过期。",
+                "packet_already_claimed": "你已经领过这个红包了。",
+                "packet_empty": "红包已经被抢完了。",
+            }
+            await query.answer(messages.get(str(exc), "抢红包失败，请稍后再试。"), show_alert=True)
+            return
+        sender_row = next((row for row in _repo(context).list_chat_members(int(packet["chat_id"]), limit=20, query=str(packet["sender_user_id"])) if int(row["user_id"]) == int(packet["sender_user_id"])), None)
+        sender_name = _display_name(
+            sender_row.get("first_name") if sender_row else None,
+            sender_row.get("last_name") if sender_row else None,
+            sender_row.get("username") if sender_row else None,
+            packet["sender_user_id"],
+        )
+        settings = _repo(context).get_settings(int(packet["chat_id"]))
+        text = _hongbao_service(context).render_packet_text(result["packet"], settings, sender_name)
+        try:
+            await query.edit_message_text(
+                text=text,
+                reply_markup=_hongbao_markup(packet_id, active=str(result["packet"]["status"]) == PACKET_STATUS_ACTIVE),
+                parse_mode="HTML",
+            )
+        except TelegramError:
+            pass
+        await query.answer(f"抢到 {result['claim']['amount']} {CURRENCY_LABEL}", show_alert=True)
+
+
+async def _hongbao_expire_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    service = _hongbao_service(context)
+    for packet in service.expire_due_packets():
+        await _refresh_hongbao_message(context.bot, _repo(context), packet)
+
+
+def register_hongbao_job(app) -> None:
+    if not getattr(app, "job_queue", None):
+        return
+    app.job_queue.run_repeating(_hongbao_expire_job, interval=60, first=60, name="hongbao-expire")
 
 
 def _parse_start_payload(raw_payload: str) -> tuple[str, int | None]:
@@ -1357,6 +1590,10 @@ async def pay_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             action=USER_ACTION_PAY,
         ),
     )
+
+
+async def hongbao_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _start_hongbao_flow(update, context)
 
 
 async def points_add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

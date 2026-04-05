@@ -455,6 +455,61 @@ MIGRATIONS: list[Migration] = [
         ALTER TABLE chat_settings ADD COLUMN chat_enabled INTEGER NOT NULL DEFAULT 1;
         """,
     ),
+    Migration(
+        version="0013_points_packets",
+        sql="""
+        ALTER TABLE chat_settings ADD COLUMN hongbao_template TEXT NOT NULL DEFAULT '{sender} 发了一个{packet_type}，共 {total_amount} 积分 / {packet_count} 份。{blessing}';
+
+        CREATE TABLE IF NOT EXISTS chat_points_packets(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          chat_id INTEGER NOT NULL,
+          sender_user_id INTEGER NOT NULL,
+          total_amount INTEGER NOT NULL,
+          packet_count INTEGER NOT NULL,
+          split_mode TEXT NOT NULL,
+          blessing TEXT,
+          status TEXT NOT NULL DEFAULT 'active',
+          claimed_amount INTEGER NOT NULL DEFAULT 0,
+          claimed_count INTEGER NOT NULL DEFAULT 0,
+          remaining_amount INTEGER NOT NULL,
+          remaining_count INTEGER NOT NULL,
+          expires_at TEXT NOT NULL,
+          message_id INTEGER,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_points_packets_chat_status_expires ON chat_points_packets(chat_id, status, expires_at);
+
+        CREATE TABLE IF NOT EXISTS chat_points_packet_claims(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          packet_id INTEGER NOT NULL,
+          chat_id INTEGER NOT NULL,
+          receiver_user_id INTEGER NOT NULL,
+          amount INTEGER NOT NULL,
+          ledger_id INTEGER,
+          claimed_at TEXT NOT NULL,
+          UNIQUE(packet_id, receiver_user_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_points_packet_claims_packet ON chat_points_packet_claims(packet_id, claimed_at);
+
+        CREATE TABLE IF NOT EXISTS chat_points_pool_ledger(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          chat_id INTEGER NOT NULL,
+          change_amount INTEGER NOT NULL,
+          balance_after INTEGER NOT NULL,
+          event_type TEXT NOT NULL,
+          operator TEXT NOT NULL,
+          reason TEXT,
+          related_packet_id INTEGER,
+          related_lottery_id INTEGER,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_points_pool_ledger_chat_created ON chat_points_pool_ledger(chat_id, created_at DESC);
+
+        ALTER TABLE chat_lotteries ADD COLUMN prize_source TEXT NOT NULL DEFAULT 'personal_points';
+        ALTER TABLE chat_lottery_prizes ADD COLUMN bonus_points INTEGER NOT NULL DEFAULT 0;
+        """,
+    ),
 ]
 
 

@@ -23,6 +23,9 @@ export const queryKeys = {
   pointsShop: (baseUrl: string, chatId: string, adminToken: string) => ["pointsShop", baseUrl, chatId, adminToken] as const,
   pointsRedemptions: (baseUrl: string, chatId: string, userId: string, adminToken: string) =>
     ["pointsRedemptions", baseUrl, chatId, userId, adminToken] as const,
+  pointsPackets: (baseUrl: string, chatId: string, adminToken: string) => ["pointsPackets", baseUrl, chatId, adminToken] as const,
+  pointsPool: (baseUrl: string, chatId: string, adminToken: string) => ["pointsPool", baseUrl, chatId, adminToken] as const,
+  pointsPoolLedger: (baseUrl: string, chatId: string, adminToken: string) => ["pointsPoolLedger", baseUrl, chatId, adminToken] as const,
   pointsLeaderboard: (baseUrl: string, chatId: string, adminToken: string) => ["pointsLeaderboard", baseUrl, chatId, adminToken] as const,
   pointsLedger: (baseUrl: string, chatId: string, userId: string, adminToken: string) =>
     ["pointsLedger", baseUrl, chatId, userId, adminToken] as const,

@@ -19,6 +19,7 @@ export type ChatSettings = {
   points_checkin_base_reward: number;
   points_checkin_streak_bonus: number;
   points_checkin_streak_cap: number;
+  hongbao_template: string;
 };
 
 export type ChatPointsConfig = Pick<
@@ -33,6 +34,7 @@ export type ChatPointsConfig = Pick<
   | "points_checkin_base_reward"
   | "points_checkin_streak_bonus"
   | "points_checkin_streak_cap"
+  | "hongbao_template"
 >;
 
 type ApiEnvelope<T> = {
@@ -318,6 +320,7 @@ export type LotteryPrize = {
   lottery_id?: number;
   title: string;
   winner_count: number;
+  bonus_points?: number;
   sort_order: number;
   created_at?: string;
 };
@@ -376,6 +379,7 @@ export type LotteryDetail = {
   allow_multiple_entries: boolean;
   max_entries_per_user: number;
   show_participants: boolean;
+  prize_source: "personal_points" | "group_pool";
   starts_at: string;
   entry_deadline_at: string;
   draw_at: string;
@@ -400,11 +404,63 @@ export type LotteryPayload = {
   allow_multiple_entries: boolean;
   max_entries_per_user: number;
   show_participants: boolean;
+  prize_source: "personal_points" | "group_pool";
   starts_at: string;
   entry_deadline_at: string;
   draw_at: string;
   created_by?: number | null;
   prizes: LotteryPrize[];
+};
+
+export type PointsPacket = {
+  id: number;
+  chat_id: number;
+  sender_user_id: number;
+  total_amount: number;
+  packet_count: number;
+  split_mode: "equal" | "random";
+  blessing: string | null;
+  status: string;
+  claimed_amount: number;
+  claimed_count: number;
+  remaining_amount: number;
+  remaining_count: number;
+  expires_at: string;
+  message_id: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PointsPacketClaim = {
+  id: number;
+  packet_id: number;
+  chat_id: number;
+  receiver_user_id: number;
+  amount: number;
+  ledger_id: number | null;
+  claimed_at: string;
+  username?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+};
+
+export type PointsPoolBalance = {
+  chat_id: number;
+  balance: number;
+  updated_at: string | null;
+};
+
+export type PointsPoolLedgerEntry = {
+  id: number;
+  chat_id: number;
+  change_amount: number;
+  balance_after: number;
+  event_type: string;
+  operator: string;
+  reason: string | null;
+  related_packet_id: number | null;
+  related_lottery_id: number | null;
+  created_at: string;
 };
 
 export class ApiError extends Error {
@@ -732,6 +788,42 @@ export class ApiClient {
   getPointsRedemptions(chatId: string, adminToken: string, userId?: string) {
     const query = userId ? `?user_id=${encodeURIComponent(userId)}` : "";
     return this.request<PointsRedemption[]>(`/api/v1/chats/${chatId}/points/redemptions${query}`, {
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  getPointsPackets(chatId: string, adminToken: string) {
+    return this.request<PointsPacket[]>(`/api/v1/chats/${chatId}/points/packets`, {
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  getPointsPacket(chatId: string, adminToken: string, packetId: number) {
+    return this.request<PointsPacket & { claims: PointsPacketClaim[] }>(`/api/v1/chats/${chatId}/points/packets/${packetId}`, {
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  createPointsPacket(
+    chatId: string,
+    adminToken: string,
+    payload: { sender_user_id: number; total_amount: number; packet_count: number; split_mode: "equal" | "random"; blessing?: string },
+  ) {
+    return this.request<{ packet: PointsPacket; sender_balance_after: number; ledger_id: number }>(`/api/v1/chats/${chatId}/points/packets`, {
+      method: "POST",
+      headers: this.adminHeaders(adminToken),
+      body: JSON.stringify(payload),
+    });
+  }
+
+  getPointsPool(chatId: string, adminToken: string) {
+    return this.request<PointsPoolBalance>(`/api/v1/chats/${chatId}/points/pool`, {
+      headers: this.adminHeaders(adminToken),
+    });
+  }
+
+  getPointsPoolLedger(chatId: string, adminToken: string, limit = 100) {
+    return this.request<PointsPoolLedgerEntry[]>(`/api/v1/chats/${chatId}/points/pool/ledger?limit=${limit}`, {
       headers: this.adminHeaders(adminToken),
     });
   }

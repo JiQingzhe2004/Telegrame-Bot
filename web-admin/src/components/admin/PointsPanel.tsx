@@ -4,6 +4,9 @@ import type {
   ChatPointsConfig,
   PointsBalance,
   PointsCheckinState,
+  PointsPacket,
+  PointsPoolBalance,
+  PointsPoolLedgerEntry,
   PointsLedgerEntry,
   PointsRedemption,
   PointsShopItem,
@@ -40,6 +43,7 @@ type Props = {
   onSaveShop: (items: PointsShopItem[]) => Promise<void>;
   onRedeem: (userId: string, itemKey: string) => Promise<void>;
   onUpdateRedemptionStatus: (redemptionId: number, status: string) => Promise<void>;
+  onCreatePacket: (payload: { sender_user_id: number; total_amount: number; packet_count: number; split_mode: "equal" | "random"; blessing?: string }) => Promise<void>;
 };
 
 function getTitleModeLabel(mode?: string) {
@@ -73,6 +77,7 @@ export function PointsPanel({
   onSaveShop,
   onRedeem,
   onUpdateRedemptionStatus,
+  onCreatePacket,
 }: Props) {
   const [configState, setConfigState] = useState<ChatPointsConfig>({
     points_enabled: true,
@@ -85,12 +90,18 @@ export function PointsPanel({
     points_checkin_base_reward: 3,
     points_checkin_streak_bonus: 1,
     points_checkin_streak_cap: 7,
+    hongbao_template: "{sender} 发了一个{packet_type}，共 {total_amount} 积分 / {packet_count} 份。{blessing}",
   });
   const [adjustUserId, setAdjustUserId] = useState("");
   const [adjustAmount, setAdjustAmount] = useState("1");
   const [adjustReason, setAdjustReason] = useState("");
   const [taskConfig, setTaskConfig] = useState<PointsTaskDefinition[]>([]);
   const [shopItems, setShopItems] = useState<PointsShopItem[]>([]);
+  const [packetSenderId, setPacketSenderId] = useState("");
+  const [packetAmount, setPacketAmount] = useState("100");
+  const [packetCount, setPacketCount] = useState("5");
+  const [packetBlessing, setPacketBlessing] = useState("");
+  const [packetMode, setPacketMode] = useState<"equal" | "random">("random");
 
   useEffect(() => {
     if (data.pointsConfig) setConfigState(data.pointsConfig);
@@ -121,9 +132,9 @@ export function PointsPanel({
         </TabsList>
 
         <TabsContent value="rules" className="space-y-6">
-          <Card className="admin-surface-card">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>积分规则</CardTitle>
+            <Card className="admin-surface-card">
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle>积分规则</CardTitle>
               <Button variant="outline" onClick={() => void onRefresh()}>
                 刷新
               </Button>
@@ -180,6 +191,10 @@ export function PointsPanel({
                 <Input type="number" value={configState.points_checkin_streak_cap} onChange={(e) => setConfigState((prev) => ({ ...prev, points_checkin_streak_cap: Number(e.target.value) }))} />
               </div>
               <div className="md:col-span-2">
+                <div className="space-y-2 pb-4">
+                  <Label>红包默认文案模板</Label>
+                  <Input value={configState.hongbao_template} onChange={(e) => setConfigState((prev) => ({ ...prev, hongbao_template: e.target.value }))} />
+                </div>
                 <Button onClick={() => void onSaveConfig(configState)}>
                   <Coins className="mr-2 h-4 w-4" />
                   保存积分配置
@@ -404,6 +419,82 @@ export function PointsPanel({
         </TabsContent>
 
         <TabsContent value="shop" className="space-y-6">
+          <Card className="admin-surface-card">
+            <CardHeader>
+              <CardTitle>群红包</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>发包用户</Label>
+                  <UserLazySelect members={data.members} extraOptions={adminOptions} value={packetSenderId} onChange={setPacketSenderId} placeholder="选择或输入用户 ID" />
+                </div>
+                <div className="space-y-2">
+                  <Label>红包类型</Label>
+                  <div className="flex gap-2">
+                    <Button type="button" variant={packetMode === "random" ? "default" : "outline"} onClick={() => setPacketMode("random")}>拼手气</Button>
+                    <Button type="button" variant={packetMode === "equal" ? "default" : "outline"} onClick={() => setPacketMode("equal")}>普通红包</Button>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>总金额</Label>
+                  <Input type="number" value={packetAmount} onChange={(e) => setPacketAmount(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>个数</Label>
+                  <Input type="number" value={packetCount} onChange={(e) => setPacketCount(e.target.value)} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>祝福语</Label>
+                <Input value={packetBlessing} onChange={(e) => setPacketBlessing(e.target.value)} placeholder="恭喜发财，大吉大利" />
+              </div>
+              <Button
+                onClick={() =>
+                  void onCreatePacket({
+                    sender_user_id: Number(packetSenderId),
+                    total_amount: Number(packetAmount),
+                    packet_count: Number(packetCount),
+                    split_mode: packetMode,
+                    blessing: packetBlessing.trim() || undefined,
+                  })
+                }
+              >
+                <Gift className="mr-2 h-4 w-4" />
+                后台发红包
+              </Button>
+              <div className="rounded-xl border bg-background/70 p-4 text-sm">
+                当前群资金池余额：<span className="font-semibold">{data.pointsPool?.balance ?? 0}</span>
+              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>红包ID</TableHead>
+                    <TableHead>发包人</TableHead>
+                    <TableHead>类型</TableHead>
+                    <TableHead>金额/份数</TableHead>
+                    <TableHead>状态</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.pointsPackets.length === 0 ? (
+                    <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">暂无红包记录</TableCell></TableRow>
+                  ) : (
+                    data.pointsPackets.map((row) => (
+                      <TableRow key={row.id}>
+                        <TableCell>{row.id}</TableCell>
+                        <TableCell>{row.sender_user_id}</TableCell>
+                        <TableCell>{row.split_mode === "random" ? "拼手气" : "普通红包"}</TableCell>
+                        <TableCell>{row.total_amount} / {row.packet_count}</TableCell>
+                        <TableCell>{row.status}</TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
           <Card className="admin-surface-card">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>商城商品</CardTitle>
