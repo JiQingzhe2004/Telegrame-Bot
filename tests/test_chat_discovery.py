@@ -20,7 +20,10 @@ from bot.telegram.adapter_ptb import (
     on_new_chat_members,
 )
 from bot.telegram.commands import (
+    HONGBAO_CALLBACK_PREFIX,
     USER_FLOW_CALLBACK_PREFIX,
+    hongbao_cmd,
+    on_hongbao_callback,
     on_private_text,
     on_user_flow_callback,
     pay_cmd,
@@ -778,3 +781,31 @@ def test_private_transfer_flow_completes_with_callbacks_and_text(tmp_path):
     assert bot.send_message.await_args.kwargs["chat_id"] == 43
     assert repo.get_points_balance(-100301, 42)["balance"] == 25
     assert repo.get_points_balance(-100301, 43)["balance"] == 5
+
+
+def test_hongbao_callback_uses_prompt_owner_mapping(tmp_path):
+    repo = make_repo(tmp_path)
+    prompt_reply = AsyncMock(return_value=SimpleNamespace(message_id=501))
+    update = SimpleNamespace(
+        effective_chat=SimpleNamespace(id=-100400, type=Chat.SUPERGROUP, title="积分群"),
+        effective_user=SimpleNamespace(id=42, username="alice"),
+        effective_message=SimpleNamespace(reply_text=prompt_reply),
+        message=SimpleNamespace(message_id=300, reply_text=prompt_reply),
+    )
+    context = SimpleNamespace(application=SimpleNamespace(bot_data={"repo": repo}), bot=SimpleNamespace(delete_message=AsyncMock()))
+
+    asyncio.run(hongbao_cmd(update, context))
+
+    query = SimpleNamespace(
+        data=f"{HONGBAO_CALLBACK_PREFIX}create:-100400:random",
+        from_user=SimpleNamespace(id=42),
+        message=SimpleNamespace(message_id=501),
+        answer=AsyncMock(),
+        edit_message_text=AsyncMock(),
+    )
+    callback_update = SimpleNamespace(callback_query=query, effective_chat=SimpleNamespace(id=-100400, type=Chat.SUPERGROUP, title="积分群"))
+
+    asyncio.run(on_hongbao_callback(callback_update, context))
+
+    assert context.application.bot_data["user_sessions"]["42"]["hongbao"]["split_mode"] == "random"
+    query.edit_message_text.assert_awaited_once()

@@ -7,6 +7,7 @@ import {
   Bot,
   Coins,
   Gift,
+  Landmark,
   ShieldCheck,
   ListOrdered,
   FileSearch,
@@ -36,6 +37,7 @@ import { AiConfigPanel } from "@/components/admin/AiConfigPanel";
 import { PolicyConfigPanel } from "@/components/admin/PolicyConfigPanel";
 import { PointsPanel } from "@/components/admin/PointsPanel";
 import { LotteryPanel } from "@/components/admin/LotteryPanel";
+import { PoolManagePanel } from "@/components/admin/PoolManagePanel";
 import { ListManagePanel } from "@/components/admin/ListManagePanel";
 import { AuditCenterPanel } from "@/components/admin/AuditCenterPanel";
 import { EnforcementPanel } from "@/components/admin/EnforcementPanel";
@@ -56,6 +58,7 @@ const menuItems: readonly SidebarItem[] = [
   { key: "ai", icon: Bot, label: "AI 配置" },
   { key: "policy", icon: ShieldCheck, label: "策略配置" },
   { key: "points", icon: Coins, label: "积分管理" },
+  { key: "pool", icon: Landmark, label: "资金池管理" },
   { key: "lottery", icon: Gift, label: "抽奖活动" },
   { key: "lists", icon: ListOrdered, label: "名单管理" },
   { key: "audit", icon: FileSearch, label: "审计中心" },
@@ -194,7 +197,7 @@ export function AdminConsolePage({
     queryFn: () => api.getPointsConfig(chatId, adminToken),
     enabled: authed && chatReady,
     placeholderData: keepCurrentChatData,
-    refetchInterval: menuKey === "points" ? 15000 : false,
+    refetchInterval: menuKey === "points" || menuKey === "pool" ? 15000 : false,
     refetchOnWindowFocus: false,
   });
   const pointsCheckinStateQuery = useQuery({
@@ -208,7 +211,7 @@ export function AdminConsolePage({
     queryFn: () => api.getPointsTasks(chatId, adminToken, queriedPointsUserId || undefined),
     enabled: authed && chatReady,
     placeholderData: keepCurrentChatData,
-    refetchInterval: menuKey === "points" ? 15000 : false,
+    refetchInterval: menuKey === "points" || menuKey === "pool" ? 15000 : false,
     refetchOnWindowFocus: false,
   });
   const pointsTaskConfigQuery = useQuery({
@@ -216,7 +219,7 @@ export function AdminConsolePage({
     queryFn: () => api.getPointsTaskConfig(chatId, adminToken),
     enabled: authed && chatReady,
     placeholderData: keepCurrentChatData,
-    refetchInterval: menuKey === "points" ? 15000 : false,
+    refetchInterval: menuKey === "points" || menuKey === "pool" ? 15000 : false,
     refetchOnWindowFocus: false,
   });
   const pointsShopQuery = useQuery({
@@ -224,7 +227,7 @@ export function AdminConsolePage({
     queryFn: () => api.getPointsShop(chatId, adminToken),
     enabled: authed && chatReady,
     placeholderData: keepCurrentChatData,
-    refetchInterval: menuKey === "points" ? 15000 : false,
+    refetchInterval: menuKey === "points" || menuKey === "pool" ? 15000 : false,
     refetchOnWindowFocus: false,
   });
   const pointsRedemptionsQuery = useQuery({
@@ -232,7 +235,7 @@ export function AdminConsolePage({
     queryFn: () => api.getPointsRedemptions(chatId, adminToken),
     enabled: authed && chatReady,
     placeholderData: keepCurrentChatData,
-    refetchInterval: menuKey === "points" ? 15000 : false,
+    refetchInterval: menuKey === "points" || menuKey === "pool" ? 15000 : false,
     refetchOnWindowFocus: false,
   });
   const pointsPacketsQuery = useQuery({
@@ -240,7 +243,7 @@ export function AdminConsolePage({
     queryFn: () => api.getPointsPackets(chatId, adminToken),
     enabled: authed && chatReady,
     placeholderData: keepCurrentChatData,
-    refetchInterval: menuKey === "points" ? 15000 : false,
+    refetchInterval: menuKey === "points" || menuKey === "pool" ? 15000 : false,
     refetchOnWindowFocus: false,
   });
   const pointsPoolQuery = useQuery({
@@ -248,7 +251,7 @@ export function AdminConsolePage({
     queryFn: () => api.getPointsPool(chatId, adminToken),
     enabled: authed && chatReady,
     placeholderData: keepCurrentChatData,
-    refetchInterval: menuKey === "points" ? 15000 : false,
+    refetchInterval: menuKey === "points" || menuKey === "pool" ? 15000 : false,
     refetchOnWindowFocus: false,
   });
   const pointsPoolLedgerQuery = useQuery({
@@ -256,7 +259,7 @@ export function AdminConsolePage({
     queryFn: () => api.getPointsPoolLedger(chatId, adminToken, 100),
     enabled: authed && chatReady,
     placeholderData: keepCurrentChatData,
-    refetchInterval: menuKey === "points" ? 15000 : false,
+    refetchInterval: menuKey === "points" || menuKey === "pool" ? 15000 : false,
     refetchOnWindowFocus: false,
   });
   const pointsLeaderboardQuery = useQuery({
@@ -442,7 +445,7 @@ export function AdminConsolePage({
       if (menuKey === "ai") tasks.push(verificationQuestionsQuery.refetch());
       if (menuKey === "group-members") tasks.push(membersQuery.refetch());
       if (menuKey === "lists") tasks.push(whitelistQuery.refetch(), blacklistQuery.refetch());
-      if (menuKey === "points") tasks.push(
+      if (menuKey === "points" || menuKey === "pool") tasks.push(
         pointsConfigQuery.refetch(),
         pointsTasksQuery.refetch(),
         pointsTaskConfigQuery.refetch(),
@@ -920,6 +923,25 @@ export function AdminConsolePage({
               await api.createPointsPacket(chatId, adminToken, payload);
               toast.success("红包已创建");
               await Promise.all([pointsPacketsQuery.refetch(), pointsPoolQuery.refetch(), pointsLedgerQuery.refetch()]);
+            } catch (error) {
+              toast.error(getErrorMessage(error));
+            }
+          }}
+        />
+      );
+    }
+    if (menuKey === "pool") {
+      return (
+        <PoolManagePanel
+          data={bundle}
+          onRefresh={async () => {
+            await Promise.all([pointsPoolQuery.refetch(), pointsPoolLedgerQuery.refetch(), lotteriesQuery.refetch()]);
+          }}
+          onAdjustPool={async (payload) => {
+            try {
+              await api.adjustPointsPool(chatId, adminToken, payload);
+              toast.success("资金池已调整");
+              await Promise.all([pointsPoolQuery.refetch(), pointsPoolLedgerQuery.refetch(), lotteriesQuery.refetch()]);
             } catch (error) {
               toast.error(getErrorMessage(error));
             }

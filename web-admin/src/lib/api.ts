@@ -828,6 +828,14 @@ export class ApiClient {
     });
   }
 
+  adjustPointsPool(chatId: string, adminToken: string, payload: { amount: number; reason: string }) {
+    return this.request<PointsPoolLedgerEntry>(`/api/v1/chats/${chatId}/points/pool/adjust`, {
+      method: "POST",
+      headers: this.adminHeaders(adminToken),
+      body: JSON.stringify(payload),
+    });
+  }
+
   updatePointsRedemptionStatus(chatId: string, adminToken: string, redemptionId: number, status: string) {
     return this.request<PointsRedemption>(`/api/v1/chats/${chatId}/points/redemptions/${redemptionId}/status`, {
       method: "POST",

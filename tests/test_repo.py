@@ -134,3 +134,20 @@ def test_repo_redemption_status_update(tmp_path):
     updated = repo.update_redemption_status(redemption["id"], "active")
     assert updated is not None
     assert updated["status"] == "active"
+
+
+def test_repo_adjust_points_pool(tmp_path):
+    repo = make_repo(tmp_path / "bot.db")
+
+    added = repo.adjust_points_pool(chat_id=1, amount=50, operator="test", reason="seed")
+    assert added["balance_after"] == 50
+
+    deducted = repo.adjust_points_pool(chat_id=1, amount=-20, operator="test", reason="consume")
+    assert deducted["balance_after"] == 30
+
+    try:
+        repo.adjust_points_pool(chat_id=1, amount=-40, operator="test", reason="overflow")
+    except ValueError as exc:
+        assert str(exc) == "pool_insufficient_balance"
+    else:
+        raise AssertionError("expected pool_insufficient_balance")

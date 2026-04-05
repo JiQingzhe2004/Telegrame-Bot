@@ -1598,6 +1598,30 @@ class BotRepository:
             ).fetchone()
         return dict(row)
 
+    def adjust_points_pool(
+        self,
+        *,
+        chat_id: int,
+        amount: int,
+        operator: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        if amount == 0:
+            raise ValueError("pool_amount_must_not_be_zero")
+        if not str(reason or "").strip():
+            raise ValueError("pool_reason_required")
+        current = self.get_points_pool_balance(chat_id)
+        next_balance = int(current["balance"]) + int(amount)
+        if next_balance < 0:
+            raise ValueError("pool_insufficient_balance")
+        return self.add_pool_ledger(
+            chat_id=chat_id,
+            change_amount=amount,
+            event_type="pool_admin_adjust",
+            operator=operator,
+            reason=str(reason).strip(),
+        )
+
     def get_points_pool_balance(self, chat_id: int) -> dict[str, Any]:
         with self.db.connect() as conn:
             row = conn.execute(

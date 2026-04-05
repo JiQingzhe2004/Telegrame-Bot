@@ -302,53 +302,65 @@ export function LotteryPanel({
                 </Button>
               </div>
               {formState.prizes.map((prize, index) => (
-                <div key={`${prize.title}-${index}`} className="grid gap-3 rounded-xl border bg-background/70 p-4 md:grid-cols-[1fr_120px_120px_80px]">
-                  <Input
-                    value={prize.title}
-                    onChange={(e) =>
-                      setFormState((prev) => ({
-                        ...prev,
-                        prizes: prev.prizes.map((item, i) => (i === index ? { ...item, title: e.target.value } : item)),
-                      }))
-                    }
-                    placeholder="奖项名称"
-                  />
-                  <Input
-                    type="number"
-                    value={prize.winner_count}
-                    onChange={(e) =>
-                      setFormState((prev) => ({
-                        ...prev,
-                        prizes: prev.prizes.map((item, i) => (i === index ? { ...item, winner_count: Number(e.target.value) } : item)),
-                      }))
-                    }
-                    placeholder="名额"
-                  />
-                  <Input
-                    type="number"
-                    value={prize.bonus_points ?? 0}
-                    onChange={(e) =>
-                      setFormState((prev) => ({
-                        ...prev,
-                        prizes: prev.prizes.map((item, i) => (i === index ? { ...item, bonus_points: Number(e.target.value) } : item)),
-                      }))
-                    }
-                    placeholder="奖励积分"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    disabled={formState.prizes.length <= 1}
-                    onClick={() =>
-                      setFormState((prev) => ({
-                        ...prev,
-                        prizes: prev.prizes.filter((_, i) => i !== index).map((item, i) => ({ ...item, sort_order: i })),
-                      }))
-                    }
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                <div key={`prize-${index}`} className="grid gap-3 rounded-xl border bg-background/70 p-4 md:grid-cols-[1fr_120px_120px_80px]">
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">奖项名称</Label>
+                    <Input
+                      value={prize.title}
+                      onChange={(e) =>
+                        setFormState((prev) => ({
+                          ...prev,
+                          prizes: prev.prizes.map((item, i) => (i === index ? { ...item, title: e.target.value } : item)),
+                        }))
+                      }
+                      placeholder="例如：一等奖、幸运奖"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">中奖名额</Label>
+                    <Input
+                      type="number"
+                      value={prize.winner_count}
+                      onChange={(e) =>
+                        setFormState((prev) => ({
+                          ...prev,
+                          prizes: prev.prizes.map((item, i) => (i === index ? { ...item, winner_count: Number(e.target.value) } : item)),
+                        }))
+                      }
+                      placeholder="人数"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">奖励积分</Label>
+                    <Input
+                      type="number"
+                      value={prize.bonus_points ?? 0}
+                      onChange={(e) =>
+                        setFormState((prev) => ({
+                          ...prev,
+                          prizes: prev.prizes.map((item, i) => (i === index ? { ...item, bonus_points: Number(e.target.value) } : item)),
+                        }))
+                      }
+                      placeholder="发给每位中奖者的积分"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">操作</Label>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      disabled={formState.prizes.length <= 1}
+                      onClick={() =>
+                        setFormState((prev) => ({
+                          ...prev,
+                          prizes: prev.prizes.filter((_, i) => i !== index).map((item, i) => ({ ...item, sort_order: i })),
+                        }))
+                      }
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>

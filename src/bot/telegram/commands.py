@@ -104,6 +104,25 @@ def _session_store(context: ContextTypes.DEFAULT_TYPE) -> dict[str, dict[str, An
     return bucket
 
 
+def _hongbao_prompt_store(context: ContextTypes.DEFAULT_TYPE) -> dict[str, dict[str, Any]]:
+    bucket = context.application.bot_data.get("hongbao_prompt_owners")
+    if not isinstance(bucket, dict):
+        bucket = {}
+        context.application.bot_data["hongbao_prompt_owners"] = bucket
+    return bucket
+
+
+def _remember_hongbao_prompt_owner(context: ContextTypes.DEFAULT_TYPE, *, prompt_message_id: int, owner_user_id: int, chat_id: int) -> None:
+    _hongbao_prompt_store(context)[str(prompt_message_id)] = {
+        "owner_user_id": int(owner_user_id),
+        "chat_id": int(chat_id),
+    }
+
+
+def _hongbao_prompt_owner(context: ContextTypes.DEFAULT_TYPE, prompt_message_id: int) -> dict[str, Any] | None:
+    return _hongbao_prompt_store(context).get(str(prompt_message_id))
+
+
 def _session(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> dict[str, Any]:
     key = str(user_id)
     bucket = _session_store(context)
@@ -980,12 +999,20 @@ async def _start_hongbao_flow(update: Update, context: ContextTypes.DEFAULT_TYPE
     keyboard = InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("普通红包", callback_data=f"{HONGBAO_CALLBACK_PREFIX}create:{update.effective_chat.id}:{update.effective_user.id}:{PACKET_MODE_EQUAL}"),
-                InlineKeyboardButton("拼手气红包", callback_data=f"{HONGBAO_CALLBACK_PREFIX}create:{update.effective_chat.id}:{update.effective_user.id}:{PACKET_MODE_RANDOM}"),
+                InlineKeyboardButton("普通红包", callback_data=f"{HONGBAO_CALLBACK_PREFIX}create:{update.effective_chat.id}:{PACKET_MODE_EQUAL}"),
+                InlineKeyboardButton("拼手气红包", callback_data=f"{HONGBAO_CALLBACK_PREFIX}create:{update.effective_chat.id}:{PACKET_MODE_RANDOM}"),
             ]
         ]
     )
-    await update.effective_message.reply_text("选择红包类型后，按提示继续填写金额、份数和祝福语。", reply_markup=keyboard)
+    prompt = await update.effective_message.reply_text("选择红包类型后，按提示继续填写金额、份数和祝福语。", reply_markup=keyboard)
+    prompt_message_id = getattr(prompt, "message_id", None)
+    if prompt_message_id:
+        _remember_hongbao_prompt_owner(
+            context,
+            prompt_message_id=int(prompt_message_id),
+            owner_user_id=int(update.effective_user.id),
+            chat_id=int(update.effective_chat.id),
+        )
 
 
 async def handle_group_hongbao_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -1049,11 +1076,14 @@ async def on_hongbao_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     payload = query.data.removeprefix(HONGBAO_CALLBACK_PREFIX)
     parts = payload.split(":")
     action = parts[0] if parts else ""
-    if action == "create" and len(parts) >= 4:
+    if action == "create" and len(parts) >= 3:
         chat_id = int(parts[1])
-        owner_user_id = int(parts[2])
-        split_mode = parts[3]
-        if query.from_user.id != owner_user_id:
+        split_mode = parts[2]
+        prompt_message = getattr(query, "message", None)
+        prompt_message_id = getattr(prompt_message, "message_id", None)
+        owner = _hongbao_prompt_owner(context, int(prompt_message_id)) if prompt_message_id else None
+        owner_user_id = int(owner.get("owner_user_id", 0)) if owner else 0
+        if owner_user_id and query.from_user.id != owner_user_id:
             await query.answer("只能由发起人继续填写这个红包。", show_alert=True)
             return
         session = _session(context, query.from_user.id)

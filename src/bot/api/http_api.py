@@ -610,6 +610,25 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
         _get_known_chat(chat_id)
         return ApiEnvelope(ok=True, data=services.repo.list_points_pool_ledger(chat_id, limit))
 
+    @app.post("/api/v1/chats/{chat_id}/points/pool/adjust", dependencies=[Depends(require_active), Depends(auth_admin)])
+    async def post_points_pool_adjust(chat_id: int, body: dict[str, Any]) -> ApiEnvelope:
+        _get_known_chat(chat_id)
+        try:
+            amount = int(body.get("amount", 0))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="invalid_pool_amount") from exc
+        reason = str(body.get("reason", "")).strip()
+        try:
+            row = services.repo.adjust_points_pool(
+                chat_id=chat_id,
+                amount=amount,
+                operator="admin_api",
+                reason=reason,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return ApiEnvelope(ok=True, data=row)
+
     @app.post("/api/v1/chats/{chat_id}/points/redemptions/{redemption_id}/status", dependencies=[Depends(require_active), Depends(auth_admin)])
     async def post_points_redemption_status(chat_id: int, redemption_id: int, body: dict[str, Any]) -> ApiEnvelope:
         _get_known_chat(chat_id)

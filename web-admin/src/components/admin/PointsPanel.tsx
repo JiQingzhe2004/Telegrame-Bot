@@ -463,9 +463,6 @@ export function PointsPanel({
                 <Gift className="mr-2 h-4 w-4" />
                 后台发红包
               </Button>
-              <div className="rounded-xl border bg-background/70 p-4 text-sm">
-                当前群资金池余额：<span className="font-semibold">{data.pointsPool?.balance ?? 0}</span>
-              </div>
               <Table>
                 <TableHeader>
                   <TableRow>

@@ -529,6 +529,29 @@ def test_title_redemption_activation_applies_title(tmp_path):
     )
 
 
+def test_points_pool_adjust_endpoint(tmp_path):
+    app, repo, _ = make_app_bundle(tmp_path)
+    repo.upsert_chat(ChatRef(chat_id=1, type="supergroup", title="积分群"))
+    repo.add_pool_ledger(chat_id=1, change_amount=30, event_type="packet_expired_to_pool", operator="system", reason="seed")
+    client = TestClient(app)
+
+    added = client.post(
+        "/api/v1/chats/1/points/pool/adjust",
+        headers={"X-Admin-Token": "admin-token"},
+        json={"amount": 20, "reason": "manual add"},
+    )
+    assert added.status_code == 200
+    assert added.json()["data"]["balance_after"] == 50
+
+    deducted = client.post(
+        "/api/v1/chats/1/points/pool/adjust",
+        headers={"X-Admin-Token": "admin-token"},
+        json={"amount": -10, "reason": "manual sub"},
+    )
+    assert deducted.status_code == 200
+    assert deducted.json()["data"]["balance_after"] == 40
+
+
 def test_sync_telegram_commands_endpoint(tmp_path):
     app, _, runtime_manager = make_app_bundle(tmp_path)
     client = TestClient(app)
