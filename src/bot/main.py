@@ -9,6 +9,7 @@ from bot.api.http_api import Services, create_http_app
 from bot.config import load_config
 from bot.logging_setup import setup_logging
 from bot.runtime_manager import RuntimeManager
+from bot.runtime_state_store import create_state_store
 from bot.storage.db import Database
 from bot.storage.migrations import migrate
 from bot.storage.repo import BotRepository
@@ -42,8 +43,17 @@ async def async_main() -> None:
             "hongbao_template": "{sender} 发了一个{packet_type}，共 {total_amount} 积分 / {packet_count} 份。{blessing}",
         },
     )
+    runtime_redis_url = runtime_conf.redis_url.strip()
+    runtime_redis_namespace = runtime_conf.redis_namespace.strip() or conf.redis_namespace
+    if runtime_redis_url:
+        state_store = create_state_store(runtime_redis_url, namespace=runtime_redis_namespace, source="runtime_config")
+    elif conf.redis_url.strip():
+        state_store = create_state_store(conf.redis_url, namespace=conf.redis_namespace, source="env")
+    else:
+        state_store = create_state_store("", namespace=conf.redis_namespace, source="fallback")
     runtime_manager = RuntimeManager(
         repo=repo,
+        state_store=state_store,
         config_service=config_service,
         build_application_fn=build_application,
     )
@@ -56,6 +66,7 @@ async def async_main() -> None:
     http_app = create_http_app(
         Services(
             repo=repo,
+            state_store=state_store,
             config_service=config_service,
             runtime_manager=runtime_manager,
             cors_origins=conf.http_api_cors_origins,

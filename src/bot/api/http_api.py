@@ -21,6 +21,7 @@ from bot.lottery_service import (
     PRIZE_SOURCE_PERSONAL,
     PRIZE_SOURCE_POOL,
 )
+from bot.runtime_state_store import StateStore
 from bot.points_service import PointsService
 from bot.runtime_manager import RuntimeManager
 from bot.storage.repo import BotRepository
@@ -42,12 +43,14 @@ class Services:
     def __init__(
         self,
         repo: BotRepository,
+        state_store: StateStore,
         config_service: ConfigService,
         runtime_manager: RuntimeManager,
         cors_origins: tuple[str, ...],
         web_admin_dist_path: Path,
     ) -> None:
         self.repo = repo
+        self.state_store = state_store
         self.config_service = config_service
         self.runtime_manager = runtime_manager
         self.cors_origins = cors_origins
@@ -67,6 +70,15 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    def _cache_get(key: str):
+        return services.state_store.get_cached_json(key)
+
+    def _cache_set(key: str, value: dict[str, Any] | list[Any], ttl_seconds: int) -> None:
+        services.state_store.set_cached_json(key, value, ttl_seconds)
+
+    def _cache_delete(key: str) -> None:
+        services.state_store.delete_cached(key)
 
     def require_active() -> None:
         if not services.runtime_manager.is_active():
@@ -231,6 +243,10 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
             "points_daily_cap",
             "points_transfer_enabled",
             "points_transfer_min_amount",
+            "points_transfer_daily_limit",
+            "points_checkin_base_reward",
+            "points_checkin_streak_bonus",
+            "points_checkin_streak_cap",
             "hongbao_template",
         }
         payload = {k: body[k] for k in allowed if k in body}
@@ -242,6 +258,14 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
             payload["points_daily_cap"] = int(payload["points_daily_cap"])
         if "points_transfer_min_amount" in payload:
             payload["points_transfer_min_amount"] = int(payload["points_transfer_min_amount"])
+        if "points_transfer_daily_limit" in payload:
+            payload["points_transfer_daily_limit"] = int(payload["points_transfer_daily_limit"])
+        if "points_checkin_base_reward" in payload:
+            payload["points_checkin_base_reward"] = int(payload["points_checkin_base_reward"])
+        if "points_checkin_streak_bonus" in payload:
+            payload["points_checkin_streak_bonus"] = int(payload["points_checkin_streak_bonus"])
+        if "points_checkin_streak_cap" in payload:
+            payload["points_checkin_streak_cap"] = int(payload["points_checkin_streak_cap"])
         if "hongbao_template" in payload:
             payload["hongbao_template"] = str(payload["hongbao_template"])
         return payload
@@ -373,6 +397,8 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
             "run_mode",
             "webhook_public_url",
             "webhook_path",
+            "redis_url",
+            "redis_namespace",
         }
         payload = {k: v for k, v in body.items() if k in allowed}
         if not payload:
@@ -419,6 +445,11 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
                 "points_daily_cap": settings.points_daily_cap,
                 "points_transfer_enabled": settings.points_transfer_enabled,
                 "points_transfer_min_amount": settings.points_transfer_min_amount,
+                "points_transfer_daily_limit": settings.points_transfer_daily_limit,
+                "points_checkin_base_reward": settings.points_checkin_base_reward,
+                "points_checkin_streak_bonus": settings.points_checkin_streak_bonus,
+                "points_checkin_streak_cap": settings.points_checkin_streak_cap,
+                "hongbao_template": settings.hongbao_template,
             },
         )
 
@@ -438,6 +469,11 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
                 "points_daily_cap": settings.points_daily_cap,
                 "points_transfer_enabled": settings.points_transfer_enabled,
                 "points_transfer_min_amount": settings.points_transfer_min_amount,
+                "points_transfer_daily_limit": settings.points_transfer_daily_limit,
+                "points_checkin_base_reward": settings.points_checkin_base_reward,
+                "points_checkin_streak_bonus": settings.points_checkin_streak_bonus,
+                "points_checkin_streak_cap": settings.points_checkin_streak_cap,
+                "hongbao_template": settings.hongbao_template,
             },
         )
 
@@ -449,7 +485,13 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
     @app.get("/api/v1/chats/{chat_id}/points/leaderboard", dependencies=[Depends(require_active), Depends(auth_admin)])
     async def get_points_leaderboard(chat_id: int, limit: int = 20) -> ApiEnvelope:
         _get_known_chat(chat_id)
-        return ApiEnvelope(ok=True, data=services.repo.list_points_leaderboard(chat_id, limit))
+        cache_key = f"points_leaderboard:{chat_id}:{limit}"
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            return ApiEnvelope(ok=True, data=cached)
+        data = services.repo.list_points_leaderboard(chat_id, limit)
+        _cache_set(cache_key, data, ttl_seconds=5)
+        return ApiEnvelope(ok=True, data=data)
 
     @app.get("/api/v1/chats/{chat_id}/points/ledger", dependencies=[Depends(require_active), Depends(auth_admin)])
     async def get_points_ledger(chat_id: int, limit: int = 100, user_id: int | None = None) -> ApiEnvelope:
@@ -477,6 +519,7 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        _cache_delete(f"points_leaderboard:{chat_id}:20")
         return ApiEnvelope(ok=True, data=result)
 
     @app.get("/api/v1/chats/{chat_id}/points/checkin/state", dependencies=[Depends(require_active), Depends(auth_admin)])
@@ -603,7 +646,13 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
     @app.get("/api/v1/chats/{chat_id}/points/pool", dependencies=[Depends(require_active), Depends(auth_admin)])
     async def get_points_pool(chat_id: int) -> ApiEnvelope:
         _get_known_chat(chat_id)
-        return ApiEnvelope(ok=True, data=services.repo.get_points_pool_balance(chat_id))
+        cache_key = f"points_pool:{chat_id}"
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            return ApiEnvelope(ok=True, data=cached)
+        data = services.repo.get_points_pool_balance(chat_id)
+        _cache_set(cache_key, data, ttl_seconds=5)
+        return ApiEnvelope(ok=True, data=data)
 
     @app.get("/api/v1/chats/{chat_id}/points/pool/ledger", dependencies=[Depends(require_active), Depends(auth_admin)])
     async def get_points_pool_ledger(chat_id: int, limit: int = 100) -> ApiEnvelope:
@@ -627,6 +676,7 @@ def create_http_app(services: Services, webhook_path: str) -> FastAPI:
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        _cache_delete(f"points_pool:{chat_id}")
         return ApiEnvelope(ok=True, data=row)
 
     @app.post("/api/v1/chats/{chat_id}/points/redemptions/{redemption_id}/status", dependencies=[Depends(require_active), Depends(auth_admin)])

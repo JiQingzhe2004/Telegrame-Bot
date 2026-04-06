@@ -15,6 +15,8 @@ class AppConfig:
     http_port: int
     webhook_host: str
     webhook_port: int
+    redis_url: str
+    redis_namespace: str
     http_api_cors_origins: tuple[str, ...]
     web_admin_dist_path: Path
 
@@ -33,6 +35,8 @@ def load_config() -> AppConfig:
         http_port=int(os.getenv("HTTP_API_PORT", "80")),
         webhook_host=os.getenv("WEBHOOK_HOST", "0.0.0.0"),
         webhook_port=int(os.getenv("WEBHOOK_PORT", "80")),
+        redis_url=os.getenv("REDIS_URL", ""),
+        redis_namespace=os.getenv("REDIS_NAMESPACE", "tmbot"),
         http_api_cors_origins=_split_csv(
             os.getenv("HTTP_API_CORS_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173")
         ),

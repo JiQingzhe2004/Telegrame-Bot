@@ -18,6 +18,7 @@ from bot.hongbao_service import (
     PACKET_STATUS_FULLY_CLAIMED,
 )
 from bot.points_service import PointsService
+from bot.runtime_state_store import MemoryStateStore, PersistentJsonDict, StateStore
 from bot.telegram.permissions import is_admin
 from bot.title_redemption_service import (
     TITLE_MODE_CUSTOM,
@@ -48,6 +49,17 @@ TRANSFER_STEP_CONFIRM = "confirm"
 
 def _repo(ctx: ContextTypes.DEFAULT_TYPE):
     return ctx.application.bot_data["repo"]
+
+
+def _state_store(ctx: ContextTypes.DEFAULT_TYPE) -> StateStore:
+    store = ctx.application.bot_data.get("state_store")
+    if isinstance(store, StateStore):
+        return store
+    fallback = ctx.application.bot_data.get("_memory_state_store")
+    if not isinstance(fallback, MemoryStateStore):
+        fallback = MemoryStateStore()
+        ctx.application.bot_data["_memory_state_store"] = fallback
+    return fallback
 
 
 def _points_service(ctx: ContextTypes.DEFAULT_TYPE):
@@ -96,39 +108,45 @@ async def _maybe_delete_group_command_message(update: Update, context: ContextTy
         return
 
 
-def _session_store(context: ContextTypes.DEFAULT_TYPE) -> dict[str, dict[str, Any]]:
-    bucket = context.application.bot_data.get("user_sessions")
-    if not isinstance(bucket, dict):
-        bucket = {}
-        context.application.bot_data["user_sessions"] = bucket
-    return bucket
-
-
-def _hongbao_prompt_store(context: ContextTypes.DEFAULT_TYPE) -> dict[str, dict[str, Any]]:
-    bucket = context.application.bot_data.get("hongbao_prompt_owners")
-    if not isinstance(bucket, dict):
-        bucket = {}
-        context.application.bot_data["hongbao_prompt_owners"] = bucket
-    return bucket
-
-
 def _remember_hongbao_prompt_owner(context: ContextTypes.DEFAULT_TYPE, *, prompt_message_id: int, owner_user_id: int, chat_id: int) -> None:
-    _hongbao_prompt_store(context)[str(prompt_message_id)] = {
-        "owner_user_id": int(owner_user_id),
-        "chat_id": int(chat_id),
-    }
+    _state_store(context).set_json(
+        f"hongbao_prompt:{prompt_message_id}",
+        {
+            "owner_user_id": int(owner_user_id),
+            "chat_id": int(chat_id),
+        },
+        ttl_seconds=3600,
+    )
 
 
 def _hongbao_prompt_owner(context: ContextTypes.DEFAULT_TYPE, prompt_message_id: int) -> dict[str, Any] | None:
-    return _hongbao_prompt_store(context).get(str(prompt_message_id))
+    return _state_store(context).get_json(f"hongbao_prompt:{prompt_message_id}")
 
 
-def _session(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> dict[str, Any]:
-    key = str(user_id)
-    bucket = _session_store(context)
-    if key not in bucket or not isinstance(bucket[key], dict):
-        bucket[key] = {}
-    return bucket[key]
+def _session(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> PersistentJsonDict:
+    store = _state_store(context)
+    key = f"user_session:{user_id}"
+    session = store.get_json(key) or {}
+    legacy_bucket = context.application.bot_data.get("user_sessions")
+    legacy = legacy_bucket.get(str(user_id)) if isinstance(legacy_bucket, dict) else None
+    if not session and isinstance(legacy, dict):
+        session = dict(legacy)
+
+    def _save(value: dict[str, Any]) -> None:
+        store.set_json(key, value, ttl_seconds=24 * 3600)
+        bucket = context.application.bot_data.get("user_sessions")
+        if not isinstance(bucket, dict):
+            bucket = {}
+            context.application.bot_data["user_sessions"] = bucket
+        bucket[str(user_id)] = dict(value)
+
+    def _delete() -> None:
+        store.delete(key)
+        bucket = context.application.bot_data.get("user_sessions")
+        if isinstance(bucket, dict):
+            bucket.pop(str(user_id), None)
+
+    return PersistentJsonDict(session, save_fn=_save, delete_fn=_delete)
 
 
 def _display_name(first_name: str | None, last_name: str | None, username: str | None, fallback: str | int) -> str:
@@ -1099,9 +1117,19 @@ async def on_hongbao_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         if packet is None:
             await query.answer("红包不存在。", show_alert=True)
             return
+        store = _state_store(context)
+        idem_key = f"hongbao_claim_click:{packet_id}:{query.from_user.id}"
+        if not store.set_if_absent(idem_key, "1", ttl_seconds=3):
+            await query.answer("这次点击已经在处理中。", show_alert=False)
+            return
+        lock_token = store.acquire_lock(f"hongbao_packet:{packet_id}", ttl_seconds=5)
+        if lock_token is None:
+            await query.answer("红包正在处理中，请稍后再试。", show_alert=False)
+            return
         try:
             result = _hongbao_service(context).claim_packet(packet_id, query.from_user.id, operator="telegram_callback")
         except ValueError as exc:
+            store.release_lock(f"hongbao_packet:{packet_id}", lock_token)
             messages = {
                 "packet_not_found": "红包不存在。",
                 "packet_not_active": "这个红包已经不能领取了。",
@@ -1128,13 +1156,20 @@ async def on_hongbao_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
         except TelegramError:
             pass
+        store.release_lock(f"hongbao_packet:{packet_id}", lock_token)
         await query.answer(f"抢到 {result['claim']['amount']} {CURRENCY_LABEL}", show_alert=True)
 
 
 async def _hongbao_expire_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    lock_token = _state_store(context).acquire_lock("job:hongbao_expire", ttl_seconds=50)
+    if lock_token is None:
+        return
     service = _hongbao_service(context)
-    for packet in service.expire_due_packets():
-        await _refresh_hongbao_message(context.bot, _repo(context), packet)
+    try:
+        for packet in service.expire_due_packets():
+            await _refresh_hongbao_message(context.bot, _repo(context), packet)
+    finally:
+        _state_store(context).release_lock("job:hongbao_expire", lock_token)
 
 
 def register_hongbao_job(app) -> None:

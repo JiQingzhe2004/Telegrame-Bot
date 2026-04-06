@@ -27,6 +27,10 @@ def _lottery_service(context: ContextTypes.DEFAULT_TYPE) -> LotteryService:
     return service
 
 
+def _state_store(context: ContextTypes.DEFAULT_TYPE):
+    return context.application.bot_data.get("state_store")
+
+
 def _display_name(row: dict[str, Any], fallback: int) -> str:
     name = " ".join(part for part in [row.get("first_name"), row.get("last_name")] if part).strip()
     return name or row.get("username") or str(fallback)
@@ -235,27 +239,35 @@ def _translate_join_error(code: str, lottery: dict[str, Any]) -> str:
 
 
 async def run_lottery_draw_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    state_store = _state_store(context)
+    lock_token = state_store.acquire_lock("job:lottery_draw", ttl_seconds=25) if state_store else None
+    if state_store and lock_token is None:
+        return
     service = _lottery_service(context)
     repo = _repo(context)
-    drawn_lotteries = service.draw_due_lotteries()
-    for detail in drawn_lotteries:
-        lottery = detail
-        winners = detail["winners"]
-        summary = build_winners_summary(lottery, winners)
-        try:
-            await context.bot.send_message(chat_id=int(lottery["chat_id"]), text=summary)
-        except TelegramError:
-            continue
-        for winner in winners:
+    try:
+        drawn_lotteries = service.draw_due_lotteries()
+        for detail in drawn_lotteries:
+            lottery = detail
+            winners = detail["winners"]
+            summary = build_winners_summary(lottery, winners)
             try:
-                await context.bot.send_message(
-                    chat_id=int(winner["user_id"]),
-                    text=f"你在「{lottery['title']}」中获得了 {winner['prize_title']}，请留意群内公告。",
-                )
+                await context.bot.send_message(chat_id=int(lottery["chat_id"]), text=summary)
             except TelegramError:
-                pass
-        if not winners:
-            continue
+                continue
+            for winner in winners:
+                try:
+                    await context.bot.send_message(
+                        chat_id=int(winner["user_id"]),
+                        text=f"你在「{lottery['title']}」中获得了 {winner['prize_title']}，请留意群内公告。",
+                    )
+                except TelegramError:
+                    pass
+            if not winners:
+                continue
+    finally:
+        if state_store and lock_token:
+            state_store.release_lock("job:lottery_draw", lock_token)
 
 
 def register_lottery_job(app: Application) -> None:

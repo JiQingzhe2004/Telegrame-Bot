@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from bot.ai.openai_client import AiVerificationQuestion, AiVerificationQuestionBatchResult, AiWelcomeResult
 from bot.api.http_api import Services, create_http_app
 from bot.domain.models import AiDecision, ChatRef, MessageRef, ModerationDecision, UserRef
+from bot.runtime_state_store import MemoryStateStore
 from bot.storage.db import Database
 from bot.storage.migrations import migrate
 from bot.storage.repo import BotRepository
@@ -132,6 +133,7 @@ def make_app_bundle(
     runtime_manager = FakeRuntimeManager(active=active, ai_moderator=ai_moderator, runtime_config=runtime_config)
     services = Services(
         repo=repo,
+        state_store=MemoryStateStore(),
         config_service=ConfigService(db),
         runtime_manager=runtime_manager,
         cors_origins=(),

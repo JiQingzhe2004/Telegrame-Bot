@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from bot.runtime_manager import RuntimeManager
+from bot.runtime_state_store import MemoryStateStore
 from bot.system_config import RuntimeConfig
 
 
@@ -38,6 +39,7 @@ def test_runtime_manager_runs_post_init_when_starting() -> None:
 
     manager = RuntimeManager(
         repo=repo,
+        state_store=MemoryStateStore(),
         config_service=_FakeConfigService(conf),
         build_application_fn=lambda **_: tg_app,
     )

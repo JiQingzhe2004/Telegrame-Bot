@@ -102,3 +102,20 @@ def test_join_verification_question_type_must_be_valid(tmp_path):
         assert "join_verification_question_type must be button or quiz" in str(exc)
     else:
         raise AssertionError("expected validation error")
+
+
+def test_config_service_redis_url_is_redacted_and_persisted(tmp_path):
+    svc = make_service(tmp_path)
+    conf = svc.save_runtime_config(
+        {
+            "bot_token": "bot-token",
+            "admin_api_token": "admin-token",
+            "redis_url": "redis://redis:6379/0",
+            "redis_namespace": "tmbot",
+        }
+    )
+
+    assert conf.redis_url == "redis://redis:6379/0"
+    public = conf.redacted()
+    assert public["has_redis_url"] is True
+    assert public["redis_url"] != "redis://redis:6379/0"

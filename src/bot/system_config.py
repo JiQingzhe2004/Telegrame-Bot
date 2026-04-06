@@ -19,6 +19,8 @@ class RuntimeConfig:
     run_mode: str = "polling"
     webhook_public_url: str = ""
     webhook_path: str = "/telegram/webhook"
+    redis_url: str = ""
+    redis_namespace: str = "tmbot"
     admin_api_token: str = ""
     admin_api_token_hash: str = ""
     default_mode: str = "balanced"
@@ -51,6 +53,8 @@ class RuntimeConfig:
             run_mode=str(merged["run_mode"]).strip().lower(),
             webhook_public_url=str(merged["webhook_public_url"]).strip(),
             webhook_path=str(merged["webhook_path"]).strip() or "/telegram/webhook",
+            redis_url=str(merged.get("redis_url", "")).strip(),
+            redis_namespace=str(merged.get("redis_namespace", "tmbot")).strip() or "tmbot",
             admin_api_token=str(merged["admin_api_token"]).strip(),
             admin_api_token_hash=str(merged.get("admin_api_token_hash", "")).strip(),
             default_mode=str(merged["default_mode"]).strip(),
@@ -76,13 +80,14 @@ class RuntimeConfig:
 
     def redacted(self) -> dict[str, Any]:
         data = asdict(self)
-        for key in ("bot_token", "openai_api_key", "admin_api_token", "admin_api_token_hash"):
+        for key in ("bot_token", "openai_api_key", "admin_api_token", "admin_api_token_hash", "redis_url"):
             raw = data[key]
             if not raw:
                 data[key] = ""
             else:
                 data[key] = f"{raw[:4]}***{raw[-3:]}" if len(raw) > 8 else "***"
         data["has_admin_api_token"] = bool(self.admin_api_token_hash or self.admin_api_token)
+        data["has_redis_url"] = bool(self.redis_url)
         return data
 
 
@@ -110,9 +115,17 @@ class ConfigService:
         current = asdict(self.get_runtime_config())
         merged = current | payload
         raw_admin = str(payload.get("admin_api_token", "")).strip() if "admin_api_token" in payload else ""
+        raw_redis = str(payload.get("redis_url", "")).strip() if "redis_url" in payload else ""
         if raw_admin:
             merged["admin_api_token_hash"] = self._hash(raw_admin)
             merged["admin_api_token"] = ""
+        elif "admin_api_token" in payload and not raw_admin:
+            merged["admin_api_token"] = current.get("admin_api_token", "")
+            merged["admin_api_token_hash"] = current.get("admin_api_token_hash", "")
+        if raw_redis:
+            merged["redis_url"] = raw_redis
+        elif "redis_url" in payload and not raw_redis:
+            merged["redis_url"] = current.get("redis_url", "")
         conf = RuntimeConfig.from_dict(merged)
         errors = self.validate_config(conf)
         if errors:

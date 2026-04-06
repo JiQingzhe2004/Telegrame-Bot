@@ -45,6 +45,8 @@ type Props = {
     run_mode: "polling" | "webhook";
     webhook_public_url?: string;
     webhook_path?: string;
+    redis_url?: string;
+    redis_namespace?: string;
   }) => Promise<void>;
   onTestModeration: (text: string) => Promise<ModerationAiTestResult>;
   onTestWelcome: (userDisplayName: string) => Promise<WelcomeAiTestResult>;
@@ -71,6 +73,8 @@ type RuntimeFormState = {
   run_mode: "polling" | "webhook";
   webhook_public_url: string;
   webhook_path: string;
+  redis_url: string;
+  redis_namespace: string;
 };
 
 function buildInitialState(config?: RuntimeConfigPublic): RuntimeFormState {
@@ -91,6 +95,8 @@ function buildInitialState(config?: RuntimeConfigPublic): RuntimeFormState {
     run_mode: config?.run_mode ?? "polling",
     webhook_public_url: config?.webhook_public_url || "",
     webhook_path: config?.webhook_path || "/telegram/webhook",
+    redis_url: config?.redis_url || "",
+    redis_namespace: config?.redis_namespace || "tmbot",
   };
 }
 
@@ -194,6 +200,8 @@ export function AiConfigPanel({
         <div className="flex flex-wrap gap-3">
           <Badge variant="outline">当前运行模式: {config?.run_mode ?? "-"}</Badge>
           <Badge variant="outline">当前 Base URL: {config?.openai_base_url || "官方默认"}</Badge>
+          <Badge variant="outline">状态存储: {config?.has_redis_url ? "已配置 Redis" : "未配置 Redis"}</Badge>
+          <Badge variant="outline">Redis Namespace: {config?.redis_namespace || "tmbot"}</Badge>
         </div>
 
         <div className="grid gap-5 md:grid-cols-2">
@@ -261,6 +269,14 @@ export function AiConfigPanel({
             <Label>Webhook Path</Label>
             <Input placeholder="/telegram/webhook" value={formState.webhook_path} onChange={(e) => setFormState((prev) => ({ ...prev, webhook_path: e.target.value }))} />
           </div>
+          <div className="space-y-2">
+            <Label>Redis URL（留空不修改）</Label>
+            <Input placeholder="redis://redis:6379/0" value={formState.redis_url} onChange={(e) => setFormState((prev) => ({ ...prev, redis_url: e.target.value }))} />
+          </div>
+          <div className="space-y-2">
+            <Label>Redis Namespace</Label>
+            <Input value={formState.redis_namespace} onChange={(e) => setFormState((prev) => ({ ...prev, redis_namespace: e.target.value }))} />
+          </div>
           <div className="space-y-2 md:col-span-2">
             <Label>欢迎语模板（支持 {"{user} / {chat}"}）</Label>
             <Textarea rows={3} value={formState.join_welcome_template} onChange={(e) => setFormState((prev) => ({ ...prev, join_welcome_template: e.target.value }))} />
@@ -327,6 +343,8 @@ export function AiConfigPanel({
                 run_mode: formState.run_mode,
                 webhook_public_url: formState.webhook_public_url.trim() || "",
                 webhook_path: formState.webhook_path.trim() || "/telegram/webhook",
+                redis_url: formState.redis_url.trim() || undefined,
+                redis_namespace: formState.redis_namespace.trim() || "tmbot",
               })
             }
           >

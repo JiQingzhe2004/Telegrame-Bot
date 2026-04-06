@@ -93,63 +93,71 @@ async def run_inspection(context: ContextTypes.DEFAULT_TYPE) -> None:
     app: Application = context.application
     repo: BotRepository | None = app.bot_data.get("repo")
     runtime_config: RuntimeConfig = app.bot_data.get("runtime_config") or RuntimeConfig()
+    state_store = app.bot_data.get("state_store")
 
     if repo is None:
+        return
+    lock_token = state_store.acquire_lock("job:auto_inspection", ttl_seconds=240) if state_store else None
+    if state_store and lock_token is None:
         return
 
     alerts: list[str] = []
 
-    # 1. 检查 AI 超时率
-    ai_rate = _calc_ai_timeout_rate(repo, LOOKBACK_MINUTES)
-    if ai_rate > AI_TIMEOUT_RATE_THRESHOLD:
-        alerts.append(f"⚠️ AI 超时率过高：{ai_rate:.0%}（近 {LOOKBACK_MINUTES} 分钟）")
-
-    # 2. 检查动作失败率
-    fail_rate = _calc_action_fail_rate(repo, LOOKBACK_MINUTES)
-    if fail_rate > ACTION_FAIL_RATE_THRESHOLD:
-        alerts.append(f"⚠️ 动作失败/降级率过高：{fail_rate:.0%}（近 {LOOKBACK_MINUTES} 分钟）")
-
-    # 3. 检查各活跃群的机器人权限
     try:
-        chats = repo.list_chats(limit=50)
-        for chat in chats:
-            chat_id = int(chat["chat_id"])
-            issues = await _check_bot_permissions(app.bot, chat_id)
-            if issues:
-                alerts.append(f"⚠️ 群 {chat.get('title') or chat_id} 权限缺失：{'、'.join(issues)}")
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("chat permission inspection failed: %s", exc)
+        # 1. 检查 AI 超时率
+        ai_rate = _calc_ai_timeout_rate(repo, LOOKBACK_MINUTES)
+        if ai_rate > AI_TIMEOUT_RATE_THRESHOLD:
+            alerts.append(f"⚠️ AI 超时率过高：{ai_rate:.0%}（近 {LOOKBACK_MINUTES} 分钟）")
 
-    # 4. 检查 Webhook 模式下的连通性
-    if runtime_config.run_mode == "webhook":
+        # 2. 检查动作失败率
+        fail_rate = _calc_action_fail_rate(repo, LOOKBACK_MINUTES)
+        if fail_rate > ACTION_FAIL_RATE_THRESHOLD:
+            alerts.append(f"⚠️ 动作失败/降级率过高：{fail_rate:.0%}（近 {LOOKBACK_MINUTES} 分钟）")
+
+        # 3. 检查各活跃群的机器人权限
         try:
-            wh_info = await app.bot.get_webhook_info()
-            if wh_info.last_error_message:
-                alerts.append(f"⚠️ Webhook 异常：{wh_info.last_error_message}")
-        except TelegramError as exc:
-            alerts.append(f"⚠️ Webhook 状态获取失败：{exc}")
+            chats = repo.list_chats(limit=50)
+            for chat in chats:
+                chat_id = int(chat["chat_id"])
+                issues = await _check_bot_permissions(app.bot, chat_id)
+                if issues:
+                    alerts.append(f"⚠️ 群 {chat.get('title') or chat_id} 权限缺失：{'、'.join(issues)}")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("chat permission inspection failed: %s", exc)
 
-    if not alerts:
-        logger.debug("inspection passed, no issues found")
-        return
-
-    # 发送告警到所有活跃群
-    alert_text = "🔍 自动巡检告警\n" + "\n".join(alerts)
-    logger.warning("inspection alerts: %s", alert_text)
-    try:
-        chats = repo.list_chats(limit=50)
-        sent = set()
-        for chat in chats:
-            chat_id = int(chat["chat_id"])
-            if chat_id in sent:
-                continue
-            sent.add(chat_id)
+        # 4. 检查 Webhook 模式下的连通性
+        if runtime_config.run_mode == "webhook":
             try:
-                await app.bot.send_message(chat_id=chat_id, text=alert_text)
+                wh_info = await app.bot.get_webhook_info()
+                if wh_info.last_error_message:
+                    alerts.append(f"⚠️ Webhook 异常：{wh_info.last_error_message}")
             except TelegramError as exc:
-                logger.warning("send inspection alert failed chat=%s err=%s", chat_id, exc)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("inspection alert broadcast failed: %s", exc)
+                alerts.append(f"⚠️ Webhook 状态获取失败：{exc}")
+
+        if not alerts:
+            logger.debug("inspection passed, no issues found")
+            return
+
+        # 发送告警到所有活跃群
+        alert_text = "🔍 自动巡检告警\n" + "\n".join(alerts)
+        logger.warning("inspection alerts: %s", alert_text)
+        try:
+            chats = repo.list_chats(limit=50)
+            sent = set()
+            for chat in chats:
+                chat_id = int(chat["chat_id"])
+                if chat_id in sent:
+                    continue
+                sent.add(chat_id)
+                try:
+                    await app.bot.send_message(chat_id=chat_id, text=alert_text)
+                except TelegramError as exc:
+                    logger.warning("send inspection alert failed chat=%s err=%s", chat_id, exc)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("inspection alert broadcast failed: %s", exc)
+    finally:
+        if state_store and lock_token:
+            state_store.release_lock("job:auto_inspection", lock_token)
 
 
 def register_inspection_job(app: Application) -> None:

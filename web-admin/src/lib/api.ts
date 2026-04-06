@@ -48,6 +48,8 @@ export type RuntimeState = {
   config_complete: boolean;
   config_version: number;
   run_mode: "polling" | "webhook";
+  state_store_mode: "memory" | "redis";
+  state_store_source: "runtime_config" | "env" | "fallback";
   backend_version: string;
 };
 
@@ -58,6 +60,8 @@ export type RuntimeConfigPublic = {
   run_mode: "polling" | "webhook";
   webhook_public_url: string;
   webhook_path: string;
+  redis_url: string;
+  redis_namespace: string;
   admin_api_token: string;
   admin_api_token_hash: string;
   default_mode: string;
@@ -79,6 +83,7 @@ export type RuntimeConfigPublic = {
   join_welcome_use_ai: boolean;
   join_welcome_template: string;
   has_admin_api_token: boolean;
+  has_redis_url: boolean;
 };
 
 export type SetupState = {
@@ -658,6 +663,8 @@ export class ApiClient {
         | "run_mode"
         | "webhook_public_url"
         | "webhook_path"
+        | "redis_url"
+        | "redis_namespace"
       >
     >,
   ) {

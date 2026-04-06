@@ -11,6 +11,7 @@ from telegram.ext import Application
 from bot.ai.openai_client import AiRuntimeConfig, OpenAiModerator
 from bot.domain.moderation import Enforcer, ModerationService
 from bot.domain.rules import default_rules
+from bot.runtime_state_store import StateStore
 from bot.storage.repo import BotRepository
 from bot.system_config import ConfigService, RuntimeConfig
 
@@ -21,11 +22,13 @@ class RuntimeManager:
     def __init__(
         self,
         repo: BotRepository,
+        state_store: StateStore,
         config_service: ConfigService,
         build_application_fn,
         webhook_path: str = "/telegram/webhook",
     ) -> None:
         self.repo = repo
+        self.state_store = state_store
         self.config_service = config_service
         self.build_application_fn = build_application_fn
         self.webhook_path = webhook_path
@@ -102,6 +105,7 @@ class RuntimeManager:
         tg_app = self.build_application_fn(
             bot_token=conf.bot_token,
             repo=self.repo,
+            state_store=self.state_store,
             moderation_service=moderation_service,
             enforcer=enforcer,
             ai_moderator=ai,
@@ -146,6 +150,8 @@ class RuntimeManager:
             "config_complete": self.config_service.is_complete(conf),
             "config_version": 1,
             "run_mode": conf.run_mode,
+            "state_store_mode": getattr(self.state_store, "mode", "memory"),
+            "state_store_source": getattr(self.state_store, "source", "fallback"),
         }
 
     async def process_webhook_update(self, payload: dict[str, Any]) -> None:

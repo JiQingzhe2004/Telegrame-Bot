@@ -31,6 +31,7 @@ from bot.ai.openai_client import OpenAiModerator
 from bot.hongbao_service import HongbaoService
 from bot.points_service import PointsService
 from bot.lottery_service import LotteryService
+from bot.runtime_state_store import StateStore
 from bot.ai.redact import redact_pii
 from bot.domain.models import ChatRef, MessageRef, ModerationContext, UserRef
 from bot.domain.moderation import Enforcer, ModerationService
@@ -833,6 +834,7 @@ _raid_detector = RaidDetector()
 def build_application(
     bot_token: str,
     repo: BotRepository,
+    state_store: StateStore,
     moderation_service: ModerationService,
     enforcer: Enforcer,
     ai_moderator: OpenAiModerator | None = None,
@@ -841,6 +843,7 @@ def build_application(
     points_service = PointsService(repo)
     app = ApplicationBuilder().token(bot_token).build()
     app.bot_data["repo"] = repo
+    app.bot_data["state_store"] = state_store
     app.bot_data["moderation_service"] = moderation_service
     app.bot_data["enforcer"] = enforcer
     app.bot_data["ai_moderator"] = ai_moderator
