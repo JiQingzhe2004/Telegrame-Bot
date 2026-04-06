@@ -119,6 +119,14 @@ export function AdminConsolePage({
     refetchInterval: 15000,
     refetchOnWindowFocus: false,
   });
+  const runtimeStateQuery = useQuery({
+    queryKey: queryKeys.runtime(baseUrl),
+    queryFn: () => api.getRuntimeState(),
+    enabled: Boolean(baseUrl),
+    placeholderData: keepPreviousData,
+    refetchInterval: 15000,
+    refetchOnWindowFocus: false,
+  });
   const runtimeConfigQuery = useQuery({
     queryKey: queryKeys.runtimeConfig(baseUrl, adminToken),
     queryFn: () => api.getRuntimeConfig(adminToken),
@@ -1036,10 +1044,10 @@ export function AdminConsolePage({
             后端 v{backendVersion}
           </Badge>
           <Badge variant="outline" className="hidden sm:inline-flex bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-200 dark:border-emerald-400/20">
-            状态存储 {statusQuery.data?.state_store_mode?.toUpperCase?.() ?? "MEMORY"}
+            状态存储 {runtimeStateQuery.data?.state_store_mode ? runtimeStateQuery.data.state_store_mode.toUpperCase() : "MEMORY"}
           </Badge>
           <Badge variant="outline" className="hidden md:inline-flex bg-slate-50 dark:bg-slate-500/15 dark:border-slate-400/20 dark:text-slate-200">
-            来源 {statusQuery.data?.state_store_source ?? "fallback"}
+            来源 {runtimeStateQuery.data?.state_store_source ?? "fallback"}
           </Badge>
           <div className="ml-2 flex items-center gap-2 text-xs text-muted-foreground">
             <div className={cn("h-2 w-2 rounded-full", isRefreshing ? "bg-amber-400 animate-pulse" : "bg-emerald-500")} />
